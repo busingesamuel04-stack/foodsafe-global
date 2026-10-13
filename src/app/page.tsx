@@ -14,7 +14,9 @@ import {
   Microscope, 
   ArrowRight,
   CheckCircle2,
-  ExternalLink
+  ExternalLink,
+  Scan,
+  Sparkles
 } from 'lucide-react';
 import { mockFoods } from '@/lib/data/mockFoods';
 import { mockAlerts } from '@/lib/data/mockAlerts';
@@ -91,6 +93,24 @@ export default function HomePage() {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Flagship Feature Hub CTA */}
+            <div className="flex items-center justify-center gap-3 flex-wrap pt-2">
+              <Link
+                href="/scan"
+                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-md shadow-brand-600/20 transition-all hover:scale-[1.02]"
+              >
+                <Scan className="w-5 h-5 text-white" />
+                Launch Product Barcode Scanner
+              </Link>
+              <Link
+                href="/explore"
+                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-white hover:bg-gray-50 text-gray-800 font-bold text-sm border border-gray-200 shadow-2xs transition-all"
+              >
+                <Search className="w-4 h-4 text-gray-500" />
+                Browse Hazard Knowledge Base
+              </Link>
             </div>
 
             {/* Quick Stats / Highlights */}

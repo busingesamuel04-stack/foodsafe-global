@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { Shield, Search, AlertCircle, Building2, FlaskConical, Menu, X, PlusCircle, LogIn, LogOut, ShieldAlert } from 'lucide-react';
+import { Shield, Search, AlertCircle, Building2, FlaskConical, Menu, X, PlusCircle, LogIn, LogOut, ShieldAlert, Scan } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -29,7 +29,14 @@ export const Navbar: React.FC = () => {
           </Link>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-1 lg:space-x-3 text-sm font-medium text-gray-600">
+          <nav className="hidden md:flex items-center space-x-1 lg:space-x-2.5 text-sm font-medium text-gray-600">
+            <Link
+              href="/scan"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-brand-800 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition-colors shadow-2xs"
+            >
+              <Scan className="w-4 h-4 text-brand-600" />
+              Product Scanner
+            </Link>
             <Link
               href="/explore"
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg hover:text-brand-700 hover:bg-brand-50 transition-colors"
@@ -137,6 +144,14 @@ export const Navbar: React.FC = () => {
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-gray-100 bg-white px-4 pt-3 pb-6 space-y-2">
+          <Link
+            href="/scan"
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-bold text-brand-800 bg-brand-50 border border-brand-200"
+          >
+            <Scan className="w-4 h-4 text-brand-600" />
+            Food Product Scanner
+          </Link>
           <Link
             href="/explore"
             onClick={() => setMobileMenuOpen(false)}

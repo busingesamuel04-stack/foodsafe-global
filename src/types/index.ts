@@ -122,3 +122,58 @@ export interface OrganizationMember {
   userId: string;
   role: 'owner' | 'manager' | 'staff' | 'auditor';
 }
+
+export interface ProductNutriments {
+  caloriesPer100g?: number;
+  sugarsPer100g?: number;
+  fatPer100g?: number;
+  saturatedFatPer100g?: number;
+  saltPer100g?: number;
+  sodiumPer100g?: number;
+  proteinsPer100g?: number;
+  fiberPer100g?: number;
+}
+
+export interface ProductAdditiveInfo {
+  code: string;
+  name: string;
+  riskLevel: 'safe' | 'caution' | 'high_concern';
+  description: string;
+  purpose: string;
+}
+
+export interface HealthImpact {
+  type: 'positive' | 'concern' | 'neutral';
+  title: string;
+  description: string;
+  iconName?: string;
+}
+
+export interface ProductAlternative {
+  name: string;
+  category: string;
+  whyBetter: string;
+  sugarComparison?: string;
+  priceEstimate?: string;
+}
+
+export interface ScannedProduct {
+  barcode: string;
+  name: string;
+  brand?: string;
+  category?: string;
+  imageUrl?: string;
+  ingredientsText?: string;
+  ingredientsList?: string[];
+  nutriments: ProductNutriments;
+  nutriscoreGrade?: 'a' | 'b' | 'c' | 'd' | 'e';
+  novaGroup?: 1 | 2 | 3 | 4;
+  servingSize?: string;
+  additives: ProductAdditiveInfo[];
+  allergens: string[];
+  healthImpacts: HealthImpact[];
+  sugarCubesCount: number;
+  alternatives: ProductAlternative[];
+  source: 'open_food_facts' | 'crowdsourced' | 'reference_database';
+  matchedRecall?: FoodAlert;
+}
