@@ -81,7 +81,7 @@ export default function PricingPage() {
             </p>
             <div className="pt-2">
               <span className="text-4xl font-black text-gray-900">$10</span>
-              <span className="text-xs text-gray-500 font-medium ml-1">/ month (~UGX 38,000)</span>
+              <span className="text-xs text-gray-500 font-medium ml-1">/ month (USD) • Billed Monthly</span>
             </div>
 
             <ul className="space-y-3 text-xs text-gray-700 pt-4 border-t border-gray-100">
@@ -132,7 +132,7 @@ export default function PricingPage() {
             </p>
             <div className="pt-2">
               <span className="text-4xl font-black text-gray-900">$25</span>
-              <span className="text-xs text-gray-500 font-medium ml-1">/ month (~UGX 95,000)</span>
+              <span className="text-xs text-gray-500 font-medium ml-1">/ month (USD) • Global Directory</span>
             </div>
 
             <ul className="space-y-3 text-xs text-gray-600 pt-4 border-t border-gray-100">
@@ -168,11 +168,11 @@ export default function PricingPage() {
       <div className="bg-gradient-to-r from-brand-900 to-gray-900 rounded-3xl p-8 sm:p-10 text-white space-y-4">
         <div className="flex items-center gap-2 text-brand-300 text-xs font-bold uppercase tracking-wider">
           <ShieldCheck className="w-4 h-4 text-brand-400" />
-          The $0 Launch Unit Economics
+          Global SaaS Unit Economics
         </div>
-        <h3 className="text-xl sm:text-2xl font-bold">How This Generates Revenue from Day One</h3>
+        <h3 className="text-xl sm:text-2xl font-bold">Scalable Revenue from Anywhere in the World</h3>
         <p className="text-xs sm:text-sm text-gray-300 leading-relaxed max-w-3xl">
-          By deploying on Cloudflare Pages ($0) and Supabase Free Tier ($0), your operational infrastructure cost is $0. Demonstrating this working hygiene tool to just <strong>25 local restaurants or food processors at $10/month</strong> achieves <strong>$250/month (~UGX 950,000/month) recurring net revenue</strong> before any hosting upgrade is ever needed.
+          Deployed globally on Cloudflare Pages and Supabase Free Tier, your initial infrastructure cost is $0. Onboarding just <strong>50 food businesses, restaurants, or processors worldwide at $10/month</strong> generates <strong>$500/month recurring subscription revenue</strong> with near-zero marginal server overhead.
         </p>
       </div>
     </div>

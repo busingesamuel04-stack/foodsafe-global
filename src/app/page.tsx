@@ -176,12 +176,12 @@ export default function HomePage() {
                 <h3 className="text-xl font-bold text-gray-900 mt-0.5">Testing Directory & Leads</h3>
               </div>
               <p className="text-sm text-gray-600 leading-relaxed">
-                Connect directly with certified testing laboratories (UNBS, Chemiphar, SGS) for microbiological, heavy metal, and aflatoxin analysis.
+                Connect directly with certified testing laboratories (Eurofins, SGS, Intertek, Bureau Veritas) for microbiological, chemical pesticide, and heavy metal analysis.
               </p>
               <ul className="text-xs text-gray-600 space-y-2 pt-2 border-t border-gray-100">
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                  Accreditation scopes (ISO 17025, UNBS)
+                  Accreditation scopes (ISO/IEC 17025, GFSI, FDA, EFSA)
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-indigo-600 flex-shrink-0" />

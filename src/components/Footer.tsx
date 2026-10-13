@@ -22,7 +22,7 @@ export const Footer: React.FC = () => {
             </p>
             <div className="pt-2">
               <span className="inline-flex items-center text-xs text-brand-400 bg-brand-950/70 border border-brand-800/60 px-3 py-1.5 rounded-full">
-                Zero-capital startup blueprint • Global & East African scope
+                Zero-capital startup blueprint • Worldwide Global Scope (190+ Countries)
               </span>
             </div>
           </div>
@@ -87,12 +87,22 @@ export const Footer: React.FC = () => {
             <ul className="space-y-2 text-xs sm:text-sm">
               <li>
                 <a
-                  href="https://www.unbs.go.ug"
+                  href="https://www.fda.gov/food"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 hover:text-white transition-colors"
                 >
-                  UNBS Standards <ExternalLink className="w-3 h-3 text-gray-500" />
+                  US FDA Food Safety <ExternalLink className="w-3 h-3 text-gray-500" />
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://www.efsa.europa.eu"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 hover:text-white transition-colors"
+                >
+                  European EFSA <ExternalLink className="w-3 h-3 text-gray-500" />
                 </a>
               </li>
               <li>
@@ -128,7 +138,7 @@ export const Footer: React.FC = () => {
         <div className="mt-12 pt-8 border-t border-gray-800/80 text-xs text-gray-500 space-y-4">
           <div className="p-4 rounded-lg bg-gray-900/60 border border-gray-800">
             <p className="leading-relaxed">
-              <strong>Mandatory Legal & Health Disclaimer:</strong> Information published on FoodSafe Global is compiled from accredited standards (UNBS, CODEX, WHO, EFSA) for educational and preventive guidance. Invisible bacterial, chemical, or mycotoxin presence cannot be verified through visual assessment or software algorithms alone. Confirmed diagnostic testing must be conducted by accredited laboratories utilizing validated analytical standards.
+              <strong>Mandatory Legal & Health Disclaimer:</strong> Information published on FoodSafe Global is compiled from accredited standards (Codex Alimentarius, WHO, US FDA, European EFSA, UK FSA) for educational and preventive guidance. Invisible bacterial, chemical, or mycotoxin presence cannot be verified through visual assessment or software algorithms alone. Confirmed diagnostic testing must be conducted by accredited laboratories utilizing validated analytical standards.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">

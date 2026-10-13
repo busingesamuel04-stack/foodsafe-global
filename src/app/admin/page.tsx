@@ -92,7 +92,7 @@ export default function AdminPage() {
   const [newAlertTitle, setNewAlertTitle] = useState('');
   const [newAlertProduct, setNewAlertProduct] = useState('');
   const [newAlertContaminant, setNewAlertContaminant] = useState('');
-  const [newAlertAuthority, setNewAlertAuthority] = useState('UNBS Food Surveillance Unit');
+  const [newAlertAuthority, setNewAlertAuthority] = useState('WHO / FDA Global Food Surveillance');
   const [newAlertAction, setNewAlertAction] = useState('');
   const [publishing, setPublishing] = useState(false);
 
@@ -549,7 +549,7 @@ export default function AdminPage() {
                 />
                 <input
                   type="text"
-                  placeholder="Issuing Authority (e.g. UNBS, FDA, WHO)"
+                  placeholder="Issuing Authority (e.g. US FDA, European EFSA, WHO, Codex, UK FSA)"
                   value={newAlertAuthority}
                   onChange={(e) => setNewAlertAuthority(e.target.value)}
                   className="text-xs px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none"

@@ -212,7 +212,7 @@ export default function ReportConcernPage() {
               </label>
               <input
                 type="text"
-                placeholder="e.g. Local Market Stall, Brand X"
+                placeholder="e.g. Supermarket Brand, Wholesale Producer, or Regional Bakery"
                 value={formData.vendorOrBrand}
                 onChange={(e) => setFormData({ ...formData, vendorOrBrand: e.target.value })}
                 className="w-full text-xs px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-500"
@@ -228,7 +228,7 @@ export default function ReportConcernPage() {
               <input
                 type="text"
                 required
-                placeholder="e.g. Nakasero Market Stall 14, Kampala"
+                placeholder="e.g. Terminal 4 Food Concourse, Metro Supermarket Shelf 12, or Wholesale Central"
                 value={formData.location}
                 onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                 className="w-full text-xs px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-500"

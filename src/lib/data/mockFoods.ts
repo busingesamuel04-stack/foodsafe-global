@@ -53,25 +53,25 @@ export const mockFoods: FoodProfile[] = [
     id: 'food-maize-flour',
     name: 'Maize Flour & Cornmeal',
     category: 'grains',
-    description: 'Staple grain consumed daily as posho/ugali across Africa and global grain derivatives. Vulnerable to post-harvest toxigenic fungal mold.',
+    description: 'Staple grain consumed daily as cornmeal, flour, polenta, tortillas, and global derivatives. Vulnerable to post-harvest toxigenic fungal mold.',
     riskLevel: 'critical',
     properStorage: 'Store in airtight containers raised off concrete floors in cool, well-ventilated rooms with low humidity (<13% moisture).',
     idealTemperatureRange: '15°C to 22°C (Dry environment)',
-    regionalNotes: 'High prevalence of Aspergillus flavus fungal infestation during humid harvest seasons in Uganda, Kenya, and Sub-Saharan Africa.',
+    regionalNotes: 'Prevalence of Aspergillus flavus fungal infestation during humid harvest seasons across warm agricultural belts (Sub-Saharan Africa, Latin America, South Asia, and southern US).',
     safeHandlingTips: [
       'Inspect bags for dampness, discoloration, or musty damp odors.',
       'Ensure grain was dried to below 13.5% moisture content prior to milling.',
-      'Purchase verified certified brands adhering to national standards (e.g. UNBS Quality Mark).'
+      'Purchase verified certified brands adhering to recognized international standards (e.g. Codex Alimentarius, FDA, ISO 22000).'
     ],
     commonContaminants: [
       {
         id: 'contam-chem-aflatoxins-total',
         name: 'Total Aflatoxins (B1, B2, G1, G2)',
         category: 'chemical',
-        description: 'Mycotoxins produced by Aspergillus fungi. Heat-stable and not destroyed by boiling or cooking posho/ugali.',
+        description: 'Mycotoxins produced by Aspergillus fungi. Heat-stable and not destroyed by standard boiling or baking.',
         commonSources: ['Poorly dried maize grains', 'Humid grain storage', 'Insect-damaged cobs'],
         healthRisks: ['Hepatocellular carcinoma (liver cancer)', 'Immunosuppression', 'Severe acute aflatoxicosis'],
-        safeThresholds: 'EAC/UNBS standard: max 10 ppb (µg/kg) total aflatoxins, max 5 ppb B1',
+        safeThresholds: 'Codex / US FDA / EU standard: max 4-20 ppb (µg/kg) total aflatoxins, max 2-5 ppb B1',
         preventionTips: ['Use hermetic storage bags (PICS bags)', 'Solar drying before bagging', 'Aflasafe biocontrol'],
         recommendedTesting: ['Fluorometric assay', 'Quantitative ELISA', 'HPLC']
       },
@@ -174,7 +174,7 @@ export const mockFoods: FoodProfile[] = [
     idealTemperatureRange: 'Ambient or chilled',
     safeHandlingTips: [
       'Boil municipal or well water for at least 3 minutes rolling boil if potability is unverified.',
-      'Inspect sachet/bottled water for tamper-evident seals and UNBS/national certification seals.'
+      'Inspect sachet/bottled water for tamper-evident seals and recognized statutory/international certification marks (e.g. NSF, WHO, national standards marks).'
     ],
     commonContaminants: [
       {

@@ -19,12 +19,14 @@ import {
   Database,
   FlaskConical,
   CheckCircle2,
-  Clock
+  Clock,
+  Globe
 } from 'lucide-react';
 
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<FoodAlert[]>(mockAlerts);
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [selectedRegion, setSelectedRegion] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -53,7 +55,8 @@ export default function AlertsPage() {
             publishedAt: item.published_at,
             affectedRegions: item.affected_regions || ['Global / Regional'],
             recommendedAction: item.recommended_action,
-            isReferenceOrHistorical: false
+            isReferenceOrHistorical: false,
+            region: (item.region as FoodAlert['region']) || 'Global'
           }));
           setAlerts(mapped);
           setIsLiveConnected(true);
@@ -70,12 +73,17 @@ export default function AlertsPage() {
 
   const filteredAlerts = alerts.filter((alert) => {
     const matchesFilter = filterStatus === 'all' || alert.status === filterStatus;
+    const matchesRegion =
+      selectedRegion === 'all' ||
+      alert.region === selectedRegion ||
+      (selectedRegion === 'Global' && (!alert.region || alert.region === 'Global'));
     const matchesSearch = 
       alert.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       alert.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       alert.contaminant.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (alert.region && alert.region.toLowerCase().includes(searchTerm.toLowerCase())) ||
       alert.affectedRegions.some(r => r.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesFilter && matchesSearch;
+    return matchesFilter && matchesRegion && matchesSearch;
   });
 
   return (
@@ -126,30 +134,60 @@ export default function AlertsPage() {
       </div>
 
       {/* Filter and Search */}
-      <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-center gap-4">
-        <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
-          <input
-            type="text"
-            placeholder="Search by product, batch number, hazard, or region..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
-          />
+      <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          <div className="relative flex-1 w-full">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
+            <input
+              type="text"
+              placeholder="Search by product, batch number, hazard, or region..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+            />
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
+            {[
+              { id: 'all', label: 'All Notices' },
+              { id: 'verified_official', label: 'Official Verified' },
+              { id: 'lab_confirmed', label: 'Lab Confirmed' },
+              { id: 'under_review', label: 'Under Review' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setFilterStatus(tab.id)}
+                className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                  filterStatus === tab.id
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
+
+        {/* Region Filter Row */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pt-1 text-xs border-t border-gray-100">
+          <span className="text-gray-400 font-medium whitespace-nowrap pl-1 pr-2 flex items-center gap-1">
+            <Globe className="w-3.5 h-3.5 text-gray-500" /> Jurisdiction:
+          </span>
           {[
-            { id: 'all', label: 'All Notices' },
-            { id: 'verified_official', label: 'Official Verified' },
-            { id: 'lab_confirmed', label: 'Lab Confirmed' },
-            { id: 'under_review', label: 'Under Review' },
+            { id: 'all', label: 'All Jurisdictions' },
+            { id: 'Global', label: 'Global / Multilateral' },
+            { id: 'Europe', label: 'Europe (RASFF)' },
+            { id: 'North America', label: 'North America (FDA/CFIA)' },
+            { id: 'Asia-Pacific', label: 'Asia-Pacific' },
+            { id: 'Latin America', label: 'Latin America' },
+            { id: 'Middle East & Africa', label: 'Middle East & Africa' }
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setFilterStatus(tab.id)}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                filterStatus === tab.id
-                  ? 'bg-gray-900 text-white'
+              onClick={() => setSelectedRegion(tab.id)}
+              className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all ${
+                selectedRegion === tab.id
+                  ? 'bg-blue-600 text-white shadow-xs'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
@@ -170,6 +208,10 @@ export default function AlertsPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <SafetyBadge status={alert.status} />
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                    <Globe className="w-3 h-3 text-blue-500" />
+                    {alert.region || 'Global'}
+                  </span>
                   {alert.isReferenceOrHistorical && (
                     <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
                       Historical Surveillance Reference

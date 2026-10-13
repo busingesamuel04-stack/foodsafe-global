@@ -22,13 +22,15 @@ import {
   AlertCircle,
   Database,
   Building,
-  Info
+  Info,
+  Globe
 } from 'lucide-react';
 
 export default function LaboratoriesPage() {
   const { user } = useAuth();
   const [labs, setLabs] = useState<LaboratoryProfile[]>(mockLabs);
   const [search, setSearch] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState<string>('All');
   const [selectedLabForEnquiry, setSelectedLabForEnquiry] = useState<LaboratoryProfile | null>(null);
   const [submittedEnquiry, setSubmittedEnquiry] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
@@ -73,7 +75,8 @@ export default function LaboratoriesPage() {
             enquiryRateResponseTime: item.enquiry_rate_response_time || '24-48 hours',
             isVerifiedPartner: item.is_verified_partner || false,
             listingType: (item.listing_type as LaboratoryProfile['listingType']) || 'accredited_commercial',
-            credibilityDisclaimer: item.credibility_disclaimer || undefined
+            credibilityDisclaimer: item.credibility_disclaimer || undefined,
+            region: item.region || undefined
           }));
           setLabs(mapped);
           setIsLiveConnected(true);
@@ -86,12 +89,20 @@ export default function LaboratoriesPage() {
     loadLaboratories();
   }, []);
 
-  const filteredLabs = labs.filter((lab) =>
-    lab.name.toLowerCase().includes(search.toLowerCase()) ||
-    lab.city.toLowerCase().includes(search.toLowerCase()) ||
-    lab.accreditationScope.some(s => s.toLowerCase().includes(search.toLowerCase())) ||
-    lab.supportedFoodTypes.some(t => t.toLowerCase().includes(search.toLowerCase()))
-  );
+  const filteredLabs = labs.filter((lab) => {
+    const matchesRegion =
+      selectedRegion === 'All' ||
+      lab.region === selectedRegion ||
+      (selectedRegion === 'Global' && (!lab.region || lab.region === 'Global'));
+    const matchesSearch =
+      lab.name.toLowerCase().includes(search.toLowerCase()) ||
+      lab.city.toLowerCase().includes(search.toLowerCase()) ||
+      lab.country.toLowerCase().includes(search.toLowerCase()) ||
+      (lab.region && lab.region.toLowerCase().includes(search.toLowerCase())) ||
+      lab.accreditationScope.some(s => s.toLowerCase().includes(search.toLowerCase())) ||
+      lab.supportedFoodTypes.some(t => t.toLowerCase().includes(search.toLowerCase()));
+    return matchesRegion && matchesSearch;
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -212,22 +223,50 @@ export default function LaboratoriesPage() {
         <div>
           <strong className="font-bold">Directory Transparency & Scope Protocol:</strong>
           <p className="text-indigo-900 text-xs mt-0.5 leading-relaxed">
-            FoodSafe Global compiles accredited facilities from statutory standards bodies (e.g., UNBS) and ISO/IEC 17025 accredited independent laboratories for public convenience. Facilities are clearly designated as statutory authorities or independent testing providers. Quotation requests route directly to the designated facility contact.
+            FoodSafe Global compiles accredited facilities from statutory standards bodies (e.g., US FDA, European EFSA, UK FSA) and ISO/IEC 17025 accredited international laboratory networks (Eurofins, SGS, Intertek, Bureau Veritas, Mérieux NutriSciences, TÜV SÜD) for worldwide transparency. Facilities are clearly designated as statutory authorities or independent testing providers. Quotation requests route directly to the designated facility contact.
           </p>
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs">
+      {/* Search & Region Filter Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs space-y-3">
         <div className="relative">
           <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
           <input
             type="text"
-            placeholder="Search laboratory name, test type (e.g., Aflatoxin, Salmonella, Lead), or city..."
+            placeholder="Search laboratory name, test type (e.g., Aflatoxin, Salmonella, Lead, Pesticides), or country/city..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
           />
+        </div>
+
+        {/* Region Filter Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+          <span className="text-gray-400 font-medium whitespace-nowrap pl-1 pr-2 flex items-center gap-1">
+            <Globe className="w-3.5 h-3.5 text-gray-500" /> Region:
+          </span>
+          {[
+            { id: 'All', label: 'All Regions' },
+            { id: 'Global', label: 'Global Networks' },
+            { id: 'Europe', label: 'Europe' },
+            { id: 'North America', label: 'North America' },
+            { id: 'Asia-Pacific', label: 'Asia-Pacific' },
+            { id: 'Latin America', label: 'Latin America' },
+            { id: 'Middle East & Africa', label: 'Middle East & Africa' }
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setSelectedRegion(tab.id)}
+              className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all ${
+                selectedRegion === tab.id
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -244,6 +283,10 @@ export default function LaboratoriesPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-lg font-bold text-gray-900">{lab.name}</h3>
                     {getListingTypeBadge(lab)}
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                      <Globe className="w-3 h-3 text-indigo-500" />
+                      {lab.region || 'Global'}
+                    </span>
                   </div>
                   <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-1.5">
                     <MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />

@@ -41,6 +41,7 @@ export interface FoodAlert {
   affectedRegions: string[];
   recommendedAction: string;
   isReferenceOrHistorical?: boolean;
+  region?: 'Global' | 'North America' | 'Europe' | 'Asia-Pacific' | 'Latin America' | 'Middle East & Africa';
 }
 
 export interface LaboratoryProfile {
@@ -50,7 +51,7 @@ export interface LaboratoryProfile {
   city: string;
   address?: string;
   isAccredited: boolean;
-  accreditationScope: string[]; // e.g. ["ISO/IEC 17025", "UNBS Recognized", "Microbiology", "Heavy Metals"]
+  accreditationScope: string[]; // e.g. ["ISO/IEC 17025", "FDA Registered", "Microbiology", "Heavy Metals"]
   supportedFoodTypes: string[];
   contactEmail: string;
   contactPhone?: string;
@@ -59,6 +60,7 @@ export interface LaboratoryProfile {
   isVerifiedPartner: boolean;
   listingType?: 'standards_authority' | 'accredited_commercial' | 'verified_partner';
   credibilityDisclaimer?: string;
+  region?: 'Global' | 'North America' | 'Europe' | 'Asia-Pacific' | 'Latin America' | 'Middle East & Africa';
 }
 
 export interface HygieneCheckItem {

@@ -53,10 +53,10 @@ export default function BusinessPage() {
 
   // Batch Records State
   const [batchRecords, setBatchRecords] = useState<BatchRecord[]>([
-    { id: 'bat-1', productName: 'Grade 1 Maize Flour (50kg)', batchNumber: 'MF-2025-09-44', receivedDate: '2025-09-20', expiryDate: '2026-03-20', supplierName: 'Victoria Millers Ltd', status: 'fresh', storageLocation: 'Pallet B4' },
-    { id: 'bat-2', productName: 'Pasteurized Whole Milk (100L)', batchNumber: 'DAIRY-LOT-881', receivedDate: '2025-10-10', expiryDate: '2025-10-16', supplierName: 'Pearl Dairies', status: 'approaching_expiry', storageLocation: 'Cold Room Shelf 2' },
-    { id: 'bat-3', productName: 'Raw Beef Quarters (250kg)', batchNumber: 'BEEF-ABAT-129', receivedDate: '2025-10-12', expiryDate: '2025-10-15', supplierName: 'Municipal Certified Abattoir', status: 'fresh', storageLocation: 'Meat Chiller' },
-    { id: 'bat-4', productName: 'Bulk Unrefined Cooking Oil', batchNumber: 'OIL-TEST-004', receivedDate: '2025-09-01', expiryDate: '2025-09-30', supplierName: 'Unknown Vendor', status: 'quarantined', storageLocation: 'Quarantine Bay A' }
+    { id: 'bat-1', productName: 'Grade 1 Hard Wheat Flour (50kg)', batchNumber: 'WF-2026-09-44', receivedDate: '2026-09-20', expiryDate: '2027-03-20', supplierName: 'Continental Grain Milling Corp', status: 'fresh', storageLocation: 'Pallet B4' },
+    { id: 'bat-2', productName: 'Pasteurized Whole Milk (100L)', batchNumber: 'DAIRY-LOT-881', receivedDate: '2026-10-10', expiryDate: '2026-10-18', supplierName: 'Alpine Dairy Network', status: 'approaching_expiry', storageLocation: 'Cold Room Shelf 2' },
+    { id: 'bat-3', productName: 'Raw Beef Quarters (250kg)', batchNumber: 'BEEF-ABAT-129', receivedDate: '2026-10-12', expiryDate: '2026-10-16', supplierName: 'Certified Regional Meat Provisions', status: 'fresh', storageLocation: 'Meat Chiller' },
+    { id: 'bat-4', productName: 'Bulk High-Oleic Cooking Oil', batchNumber: 'OIL-TEST-004', receivedDate: '2026-09-01', expiryDate: '2026-09-30', supplierName: 'International Edible Oils Ltd', status: 'quarantined', storageLocation: 'Quarantine Bay A' }
   ]);
 
   // Form Inputs
@@ -422,7 +422,7 @@ export default function BusinessPage() {
               </span>
             ) : (
               <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
-                Demo Organization: Serena Hotel Kitchens (Local Evaluation)
+                Demo Organization: Metropolitan Grand Culinary Group (Global Evaluation)
               </span>
             )}
           </div>
