@@ -609,7 +609,7 @@ export default function NutriScanApp() {
               <div>
                 <p className="font-bold">No product match found in the global registry.</p>
                 <p className="text-amber-700 text-[11px]">
-                  Common in local Ugandan markets. Help index this product by adding its label details!
+                  Unlisted in the global database? Help index this item into the international registry!
                 </p>
               </div>
               <button
@@ -1253,10 +1253,10 @@ export default function NutriScanApp() {
                 </div>
                 <div>
                   <h2 className="text-base font-extrabold text-slate-900">
-                    Contribute Local Product
+                    Contribute Product to Global Registry
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Help map packaged foods and beverages in African markets
+                    Help map international foods, beverages, and packaged goods worldwide
                   </p>
                 </div>
               </div>
@@ -1293,7 +1293,7 @@ export default function NutriScanApp() {
                   required
                   value={crowdsourceForm.name}
                   onChange={e => setCrowdsourceForm({ ...crowdsourceForm, name: e.target.value })}
-                  placeholder="e.g. Mukwano Sunflower Cooking Oil or Riham Cola"
+                  placeholder="e.g. San Pellegrino Sparkling Water or Oatly Barista Edition"
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
@@ -1307,7 +1307,7 @@ export default function NutriScanApp() {
                     type="text"
                     value={crowdsourceForm.brand}
                     onChange={e => setCrowdsourceForm({ ...crowdsourceForm, brand: e.target.value })}
-                    placeholder="e.g. Harris International"
+                    placeholder="e.g. Nestlé, Danone, General Mills, Kraft"
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>

@@ -1,111 +1,84 @@
-# SafeFood Global (FoodSafe)
+# NutriScan Global
 
-> **All-in-One Food Safety Discovery, Contamination Intelligence & Food Business Management Platform**
+> **International Food Product Intelligence & Metabolic Health Tracker**
 
-SafeFood Global bridges three critical audiences in a single, high-performance web platform designed to start with **$0 capital** and scale into a sustainable, cash-flowing business:
+NutriScan is a modern, mobile-first international food intelligence platform. Designed to operate globally with **$0 operational overhead**, it decodes barcodes and food products worldwide—translating complex ingredient labels into personalized metabolic insights, glycemic spike simulations, and real-time clean eating metrics.
 
-1. **Consumers & Public (100% Free)**: Sourced food contamination guides (biological, chemical, physical hazards), safe handling protocols, verified public safety alerts, and community incident reporting.
-2. **Testing Laboratories & Providers (Marketplace)**: Verified directory of certified laboratories (e.g., UNBS Microbiology & Chemistry labs, ISO/IEC 17025 accredited facilities), sample testing scopes, and quotation leads.
-3. **Food Businesses (Primary Revenue Engine)**: B2B SaaS for restaurants, supermarkets, butcheries, and food processors to digitize daily hygiene checklists, cold-chain temperature logs (with automated danger threshold alerts), batch expiration tracking, and one-click compliance audit reports.
+Deployed on **Cloudflare Pages**, backed by **Supabase**, and integrated with the worldwide **Open Food Facts API** (covering millions of international packaged food products).
 
 ---
 
-## 🏗️ Technical Architecture & Free Commercial Tier
+## 🌍 Core Capabilities
 
-Built specifically to operate within permanent **$0 free allowances** that permit commercial SaaS use:
+1. **Global Barcode Scanner & Universal Search**:
+   - Live camera barcode scanning using `html5-qrcode` with automated environment autofocus.
+   - Worldwide product lookup across millions of international brands via the Open Food Facts v2 API.
+   - Offline benchmark tests for global household staples (Coca-Cola, Oreo, Nutella).
 
-| Component | Provider / Technology | Monthly Cost | Free Plan Scope |
+2. **Personalized Health Lens (5 Dimensions)**:
+   - 🩸 **Blood Sugar & Diabetes Prevention**: Evaluates glycemic spikes, free sucrose/fructose load, and lack of fiber buffers.
+   - ⚖️ **Weight Loss & Calorie Management**: Analyzes caloric density, liquid calories, and satiety signaling.
+   - ❤️ **Cardiovascular & Blood Pressure**: Monitors sodium levels, saturated fats, and industrial palm oils.
+   - 🛡️ **Clean Eating & Additive-Free**: Scans for synthetic colorants, preservatives, and NOVA Group 4 ultra-processed classifications.
+   - ⚡ **Sustained Energy & Anti-Crash**: Predicts afternoon energy crashes and postprandial glucose volatility.
+
+3. **Biochemical Product Intelligence**:
+   - **Metabolic Glycemic Spike Predictor**: Dynamically models glucose trajectory and energy crash risks.
+   - **Visual Sugar Cubes Breakdown**: Quantifies exact sugar content (1 cube = 4g) against the **World Health Organization (WHO) 25g daily maximum**.
+   - **Chemical Additives & E-Numbers Decoder**: Translates E-numbers (E150d, E338, E211, E951, E621, etc.) into plain-language health explanations and safety classifications.
+   - **Smart Healthier Alternatives**: Recommends cleaner alternatives with lower sugar profiles.
+
+4. **Today's Metabolic Journal**:
+   - Live **Clean Eating Index (0–100)**.
+   - Daily sugar limit tracking against WHO guidelines.
+   - Real-time ultra-processed food tally and chemical additive consumption logs.
+
+5. **International Crowdsourced Registry**:
+   - Open contribution system allowing consumers anywhere in the world to submit new or unindexed packaged food products directly to the database.
+
+---
+
+## 🏗️ Technical Architecture ($0 Operational Cost)
+
+| Component | Technology | Cost | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Frontend & UI** | Next.js 15, React 19, TypeScript, Tailwind CSS | **$0** | Static / Hybrid optimized |
-| **Hosting & CDN** | Cloudflare Pages | **$0** | Unlimited bandwidth, global edge network |
-| **Database & Auth** | Supabase (PostgreSQL with RLS) | **$0** | 500 MB PostgreSQL, 50,000 MAUs |
-| **Icons & Styling** | Lucide React & Tailwind CSS | **$0** | Open source |
-| **File Storage** | Supabase Storage | **$0** | 1 GB storage for incident & report evidence |
+| **Frontend Framework** | Next.js 15, React 19, TypeScript | **$0** | High-performance mobile-first application |
+| **Styling & UI** | Tailwind CSS, Lucide Icons | **$0** | Responsive, accessible modern design |
+| **Edge Hosting & CDN** | Cloudflare Pages | **$0** | Global edge network with zero latency |
+| **Product Database** | Open Food Facts API | **$0** | Worldwide crowdsourced food database |
+| **Cloud Database** | Supabase (PostgreSQL with RLS) | **$0** | Community product submissions & persistence |
+| **Barcode Engine** | html5-qrcode | **$0** | In-browser camera barcode recognition |
 
 ---
 
-## 🚀 Quick Start Guide
+## 🚀 Local Development
 
-### 1. Local Development
 ```bash
-# Clone or navigate to the workspace
-cd d:\Millionaire
+# Clone the repository
+git clone https://github.com/busingesamuel04-stack/foodsafe-global.git
+cd foodsafe-global
 
-# Install dependencies (already completed)
+# Install dependencies
 npm install
 
-# Start the local development server
+# Run development server
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### 2. Connect Supabase (Free Tier)
-1. Create a free account at [supabase.com](https://supabase.com).
-2. Create a new project (e.g. `safefood-global`).
-3. Navigate to **SQL Editor** in Supabase and paste the contents of:
-   `supabase/migrations/001_initial_schema.sql`
-4. Copy your project URL and Anon Public Key from **Project Settings > API**.
-5. Create `.env.local` in this project:
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-   ```
-*(Note: The platform includes built-in offline mock data fallbacks, allowing the entire app to run immediately even before database keys are added).*
+Visit [http://localhost:3000](http://localhost:3000) in your browser.
 
----
+### Verification Suite
+```bash
+# Run linting, TypeScript checks, and Node test runner
+npm run check
 
-## 📂 Project Structure
-
-```
-d:\Millionaire\
-├── src\
-│   ├── app\
-│   │   ├── layout.tsx             # Root layout with safety disclaimers & navbar
-│   │   ├── globals.css            # Tailwind CSS styling
-│   │   ├── page.tsx               # Homepage highlighting the 3 core pillars
-│   │   ├── explore\page.tsx       # Food contamination intelligence library
-│   │   ├── alerts\page.tsx        # Official verified recalls & public notices
-│   │   ├── laboratories\page.tsx  # Certified testing labs & quotation forms
-│   │   ├── business\page.tsx      # B2B SaaS hygiene, temperature, and batch suite
-│   │   ├── pricing\page.tsx       # Sustainable monetization tiers ($0 to $10/mo)
-│   │   ├── report-concern\page.tsx# Citizen concern submission form with safe safeguards
-│   │   └── admin\page.tsx         # Admin dashboard for publishing alerts & moderating submissions
-│   ├── components\
-│   │   ├── Navbar.tsx             # Responsive header navigation
-│   │   ├── Footer.tsx             # Footer with regulatory links & legal disclaimers
-│   │   ├── DisclaimerBanner.tsx   # Mandatory scientific detection disclaimer
-│   │   └── SafetyBadge.tsx        # Visual badges (Verified Official vs Under Review)
-│   ├── lib\
-│   │   ├── supabase.ts            # Null-safe Supabase client
-│   │   └── data\
-│   │       ├── mockFoods.ts       # Scientific food hazards & safe thresholds
-│   │       ├── mockAlerts.ts      # UNBS / WHO sourced food notices
-│   │       └── mockLabs.ts        # Accredited laboratory profiles & test scopes
-│   └── types\
-│       └── index.ts               # Core TypeScript definitions
-├── supabase\
-│   └── migrations\
-│       └── 001_initial_schema.sql # Multi-tenant PostgreSQL schema with RLS policies
-├── package.json
-├── tailwind.config.ts
-└── tsconfig.json
+# Verify Next.js static export for Cloudflare Pages
+npm run build:export
 ```
 
 ---
 
-## 🛡️ Critical Safety & Legal Safeguards
+## 🌐 Live Deployment
 
-- **No False Detection Claims**: The platform prominently states that visual photographs or software algorithms cannot scientifically detect invisible bacteria (Salmonella, Listeria) or toxic chemicals (Aflatoxins, Formalin).
-- **Distinction of Verification Levels**:
-  - `Verified Official Alert`: Sourced from certified standards bodies (e.g. UNBS, FDA, WHO).
-  - `Laboratory Confirmed`: Supported by ISO 17025 accredited laboratory test results.
-  - `Under Review`: Community submissions awaiting chain-of-custody laboratory validation to protect businesses from false or defamatory allegations.
-
----
-
-## 💰 Monetization Roadmap ($0 Capital to Cashflow)
-
-1. **Phase 1 (Completed)**: Scaffolding, architecture, core 3 pillars, working demo tools, schema, and legal disclaimers.
-2. **Phase 2 (Outreach & Pilot)**: Walk into 10–20 local restaurants and bakeries with a tablet showing the live digital hygiene checklist and cold room temperature log. Offer a 30-day free trial.
-3. **Phase 3 (Subscription Launch)**: Convert active businesses to **$10/month (~UGX 38,000/month)**. 25 paying clients generates **$250/month (~UGX 950,000/month)** pure recurring revenue on zero-cost infrastructure.
-4. **Phase 4 (Lab Referrals)**: Formalize quotation agreements with accredited testing laboratories.
+* **Production URL**: [https://foodsafe-global.pages.dev](https://foodsafe-global.pages.dev)
+* **GitHub Repository**: [https://github.com/busingesamuel04-stack/foodsafe-global](https://github.com/busingesamuel04-stack/foodsafe-global)
