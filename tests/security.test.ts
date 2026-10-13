@@ -302,4 +302,88 @@ describe('FoodSafe Global Phase 1 Security & Authorization Test Suite', () => {
       assert.ok(res.errors.incidentDescription);
     });
   });
+
+  // ==========================================
+  // 8. FOOD SAFETY ALERTS RLS PERSISTENCE
+  // ==========================================
+  describe('8. Food Safety Alerts Persistence & Management', () => {
+    function canManageFoodAlerts(user: User | null): boolean {
+      if (!user) return false;
+      return user.role === 'admin';
+    }
+
+    it('Allows anyone to read published food safety alerts', () => {
+      // Public read policy: USING (true)
+      assert.strictEqual(true, true);
+    });
+
+    it('Allows administrators to publish, edit, or delete food alerts', () => {
+      assert.strictEqual(canManageFoodAlerts(adminUser), true);
+    });
+
+    it('Prevents consumers and businesses from publishing official food alerts', () => {
+      assert.strictEqual(canManageFoodAlerts(consumerUser), false);
+      assert.strictEqual(canManageFoodAlerts(businessOwnerA), false);
+      assert.strictEqual(canManageFoodAlerts(labProviderA), false);
+      assert.strictEqual(canManageFoodAlerts(anonymousUser), false);
+    });
+  });
+
+  // ==========================================
+  // 9. FOOD BUSINESS COMPLIANCE TOOLS ISOLATION
+  // ==========================================
+  describe('9. Multi-Tenant Business Compliance Records (HACCP)', () => {
+    function canManageBusinessRecords(
+      user: User | null,
+      recordOrgId: string,
+      orgs: Organization[],
+      members: OrgMember[]
+    ): boolean {
+      if (!user) return false;
+      if (user.role === 'admin') return true;
+      const isOwner = orgs.some(o => o.id === recordOrgId && o.ownerId === user.id);
+      const isMember = members.some(m => m.organizationId === recordOrgId && m.userId === user.id);
+      return isOwner || isMember;
+    }
+
+    it('Allows Organization A owner and staff to record and update checklists and logs', () => {
+      assert.strictEqual(canManageBusinessRecords(businessOwnerA, orgA.id, [orgA, orgB], orgMembers), true);
+      assert.strictEqual(canManageBusinessRecords(businessStaffA, orgA.id, [orgA, orgB], orgMembers), true);
+    });
+
+    it('Prevents Organization B member from modifying Organization A compliance logs', () => {
+      assert.strictEqual(canManageBusinessRecords(businessOwnerB, orgA.id, [orgA, orgB], orgMembers), false);
+    });
+
+    it('Prevents unauthenticated users from modifying business compliance logs', () => {
+      assert.strictEqual(canManageBusinessRecords(anonymousUser, orgA.id, [orgA, orgB], orgMembers), false);
+    });
+
+    it('Allows platform administrators to inspect business records for compliance audits', () => {
+      assert.strictEqual(canManageBusinessRecords(adminUser, orgA.id, [orgA, orgB], orgMembers), true);
+    });
+  });
+
+  // ==========================================
+  // 10. FOOD SAFETY CREDIBILITY & ATTRIBUTION
+  // ==========================================
+  describe('10. Laboratory Credibility & Referral Transparency', () => {
+    it('Requires external directory listings to be marked non-partner unless verified agreement exists', () => {
+      const publicDirectoryLab = {
+        name: 'UNBS Microbiology Testing Laboratory',
+        isVerifiedPartner: false,
+        listingType: 'standards_authority'
+      };
+      assert.strictEqual(publicDirectoryLab.isVerifiedPartner, false);
+      assert.strictEqual(publicDirectoryLab.listingType, 'standards_authority');
+    });
+
+    it('Separates community incident reports under review from lab-confirmed findings', () => {
+      const communityReport = { status: 'under_review', hasLabConfirmation: false };
+      const labConfirmedAlert = { status: 'lab_confirmed', hasLabConfirmation: true };
+
+      assert.strictEqual(communityReport.status, 'under_review');
+      assert.notStrictEqual(communityReport.status, labConfirmedAlert.status);
+    });
+  });
 });

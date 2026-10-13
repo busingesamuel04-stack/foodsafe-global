@@ -20,7 +20,9 @@ export const mockLabs: LaboratoryProfile[] = [
     contactPhone: '+256 417 333250',
     websiteUrl: 'https://www.unbs.go.ug/content.php?pg=content&src=microbiology-laboratory',
     enquiryRateResponseTime: '24-48 hours',
-    isVerifiedPartner: true
+    isVerifiedPartner: false,
+    listingType: 'standards_authority',
+    credibilityDisclaimer: 'Public Standards Authority Directory (Uganda National Bureau of Standards). Independent statutory referral.'
   },
   {
     id: 'lab-unbs-chem',
@@ -41,7 +43,9 @@ export const mockLabs: LaboratoryProfile[] = [
     contactPhone: '+256 417 333251',
     websiteUrl: 'https://www.unbs.go.ug/content.php?content=&src=chemistry-laboratory',
     enquiryRateResponseTime: '24-48 hours',
-    isVerifiedPartner: true
+    isVerifiedPartner: false,
+    listingType: 'standards_authority',
+    credibilityDisclaimer: 'Public Standards Authority Directory (Uganda National Bureau of Standards). Independent statutory referral.'
   },
   {
     id: 'lab-chemiphar',
@@ -61,7 +65,9 @@ export const mockLabs: LaboratoryProfile[] = [
     contactPhone: '+256 414 268832',
     websiteUrl: 'https://www.chemiphar.com',
     enquiryRateResponseTime: 'Same day',
-    isVerifiedPartner: true
+    isVerifiedPartner: false,
+    listingType: 'accredited_commercial',
+    credibilityDisclaimer: 'Accredited Independent Facility Directory Listing. Public referral information.'
   },
   {
     id: 'lab-sgs-global',
@@ -81,6 +87,8 @@ export const mockLabs: LaboratoryProfile[] = [
     contactPhone: '+41 22 739 91 11',
     websiteUrl: 'https://www.sgs.com/en/service-groups/food-testing',
     enquiryRateResponseTime: 'Within 24 hours',
-    isVerifiedPartner: true
+    isVerifiedPartner: false,
+    listingType: 'accredited_commercial',
+    credibilityDisclaimer: 'Multinational Accredited Testing & Inspection Network. Public directory listing.'
   }
 ];

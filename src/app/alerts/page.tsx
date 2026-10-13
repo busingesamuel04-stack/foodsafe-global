@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { mockAlerts } from '@/lib/data/mockAlerts';
 import { FoodAlert, AlertVerificationStatus } from '@/types';
 import { SafetyBadge } from '@/components/SafetyBadge';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { 
   AlertTriangle, 
   Search, 
@@ -14,14 +15,60 @@ import {
   PlusCircle, 
   ShieldCheck,
   Building,
-  Info
+  Info,
+  Database,
+  FlaskConical,
+  CheckCircle2,
+  Clock
 } from 'lucide-react';
 
 export default function AlertsPage() {
+  const [alerts, setAlerts] = useState<FoodAlert[]>(mockAlerts);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const filteredAlerts = mockAlerts.filter((alert) => {
+  useEffect(() => {
+    async function loadAlerts() {
+      if (!isSupabaseConfigured || !supabase) return;
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('food_alerts')
+          .select('*')
+          .order('published_at', { ascending: false });
+
+        if (!error && data && data.length > 0) {
+          const mapped: FoodAlert[] = data.map((item) => ({
+            id: item.id,
+            title: item.title,
+            productName: item.product_name,
+            batchOrLotNumber: item.batch_or_lot_number || undefined,
+            contaminant: item.contaminant,
+            status: item.status as AlertVerificationStatus,
+            severity: item.severity,
+            issuingAuthorityOrSource: item.issuing_authority_or_source,
+            sourceUrl: item.source_url || undefined,
+            publishedAt: item.published_at,
+            affectedRegions: item.affected_regions || ['Global / Regional'],
+            recommendedAction: item.recommended_action,
+            isReferenceOrHistorical: false
+          }));
+          setAlerts(mapped);
+          setIsLiveConnected(true);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch alerts from Supabase, using reference data:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadAlerts();
+  }, []);
+
+  const filteredAlerts = alerts.filter((alert) => {
     const matchesFilter = filterStatus === 'all' || alert.status === filterStatus;
     const matchesSearch = 
       alert.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -36,14 +83,25 @@ export default function AlertsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-3">
-          <span className="text-xs font-bold text-red-700 uppercase tracking-wider bg-red-50 px-3 py-1 rounded-full border border-red-200">
-            Real-time Verification Feed
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-red-700 uppercase tracking-wider bg-red-50 px-3 py-1 rounded-full border border-red-200">
+              Surveillance & Incident Registry
+            </span>
+            {isLiveConnected ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                <Database className="w-3 h-3 text-emerald-600" /> Live Database Sync
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-600 bg-gray-100 px-2.5 py-0.5 rounded-full border border-gray-200">
+                Reference Standards Mode
+              </span>
+            )}
+          </div>
           <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight">
             Food Safety Alerts & Recalls
           </h1>
           <p className="text-sm sm:text-base text-gray-600 max-w-2xl">
-            Sourced and verified alerts from national bureaus of standards, municipal public health inspectors, and certified testing laboratories.
+            Sourced and verified alerts from national standards bodies, municipal health surveillance, and certified testing laboratories.
           </p>
         </div>
 
@@ -56,13 +114,13 @@ export default function AlertsPage() {
         </Link>
       </div>
 
-      {/* Safety Protocol Banner */}
+      {/* Safety & Credibility Hierarchy Protocol Banner */}
       <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 sm:p-5 flex items-start gap-3.5 text-xs sm:text-sm text-blue-950">
         <ShieldCheck className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <strong className="font-bold">Strict Verification Standard:</strong>
+          <strong className="font-bold">Information Integrity & Verification Protocol:</strong>
           <p className="text-blue-900 text-xs leading-relaxed">
-            Unverified consumer submissions are strictly marked as <em>&quot;Under Review&quot;</em> until sample chain-of-custody and analytical lab confirmation or regulatory bureau notices are formally recorded.
+            FoodSafe Global strictly categorizes notifications into <strong>Official Regulatory Advisories</strong> (government statutory gazettes), <strong>Lab-Confirmed Findings</strong> (certified analytical test reports), and <strong>Community Reports Under Review</strong> (field reports pending investigation). Community submissions are never presented as verified contaminants without formal analytical evidence.
           </p>
         </div>
       </div>
@@ -110,8 +168,15 @@ export default function AlertsPage() {
           >
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <SafetyBadge status={alert.status} />
-                <span className="flex items-center gap-1 text-[11px] font-medium text-gray-500">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <SafetyBadge status={alert.status} />
+                  {alert.isReferenceOrHistorical && (
+                    <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
+                      Historical Surveillance Reference
+                    </span>
+                  )}
+                </div>
+                <span className="flex items-center gap-1 text-[11px] font-medium text-gray-500 whitespace-nowrap">
                   <Calendar className="w-3.5 h-3.5 text-gray-400" />
                   {alert.publishedAt}
                 </span>
@@ -150,20 +215,20 @@ export default function AlertsPage() {
             </div>
 
             <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
-              <span className="text-gray-500 flex items-center gap-1">
-                <Building className="w-3.5 h-3.5" /> {alert.issuingAuthorityOrSource}
+              <span className="text-gray-500 flex items-center gap-1 truncate max-w-[65%]">
+                <Building className="w-3.5 h-3.5 flex-shrink-0" /> <span className="truncate">{alert.issuingAuthorityOrSource}</span>
               </span>
               {alert.sourceUrl ? (
                 <a
                   href={alert.sourceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-1"
+                  className="font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-1 whitespace-nowrap"
                 >
                   Official Source <ExternalLink className="w-3 h-3" />
                 </a>
               ) : (
-                <span className="text-gray-400">Internal Registry</span>
+                <span className="text-gray-400 whitespace-nowrap">Internal Registry</span>
               )}
             </div>
           </div>

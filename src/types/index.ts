@@ -40,6 +40,7 @@ export interface FoodAlert {
   publishedAt: string;
   affectedRegions: string[];
   recommendedAction: string;
+  isReferenceOrHistorical?: boolean;
 }
 
 export interface LaboratoryProfile {
@@ -56,6 +57,8 @@ export interface LaboratoryProfile {
   websiteUrl?: string;
   enquiryRateResponseTime?: string;
   isVerifiedPartner: boolean;
+  listingType?: 'standards_authority' | 'accredited_commercial' | 'verified_partner';
+  credibilityDisclaimer?: string;
 }
 
 export interface HygieneCheckItem {

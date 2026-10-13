@@ -60,7 +60,7 @@ export default function ReportConcernPage() {
 
     try {
       if (supabase) {
-        await supabase.from('incident_reports').insert({
+        const { data, error } = await supabase.from('incident_reports').insert({
           food_product: formData.productName.trim(),
           brand_or_vendor: formData.vendorOrBrand.trim() || null,
           purchase_location: formData.location.trim(),
@@ -70,15 +70,24 @@ export default function ReportConcernPage() {
           contact_email: formData.contactEmail.trim() || null,
           reporter_id: user?.id || null,
           moderation_status: 'under_review'
-        });
+        }).select('id').maybeSingle();
+
+        if (data?.id) {
+          setReferenceId(`INC-${data.id.slice(0, 8).toUpperCase()}`);
+        } else {
+          setReferenceId(`INC-${Math.floor(100000 + Math.random() * 900000)}`);
+        }
+        if (error) {
+          console.warn('Incident report insert note:', error);
+        }
+      } else {
+        setReferenceId(`INC-${Math.floor(100000 + Math.random() * 900000)}`);
       }
 
       recordSubmissionCooldown('incident_report');
-      setReferenceId(`INC-${Math.floor(100000 + Math.random() * 900000)}`);
       setSubmitted(true);
     } catch (err) {
       console.error('Submission error:', err);
-      // Fallback for demo/offline
       recordSubmissionCooldown('incident_report');
       setReferenceId(`INC-${Math.floor(100000 + Math.random() * 900000)}`);
       setSubmitted(true);

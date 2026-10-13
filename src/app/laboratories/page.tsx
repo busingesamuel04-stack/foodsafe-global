@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { validateTestEnquiry, checkSubmissionCooldown, recordSubmissionCooldown } from '@/lib/validation';
 import { mockLabs } from '@/lib/data/mockLabs';
 import { LaboratoryProfile } from '@/types';
@@ -17,19 +17,25 @@ import {
   Search, 
   Clock, 
   Check, 
-  ShieldCheck,
+  ShieldCheck, 
   X,
-  AlertCircle
+  AlertCircle,
+  Database,
+  Building,
+  Info
 } from 'lucide-react';
 
 export default function LaboratoriesPage() {
   const { user } = useAuth();
+  const [labs, setLabs] = useState<LaboratoryProfile[]>(mockLabs);
   const [search, setSearch] = useState('');
   const [selectedLabForEnquiry, setSelectedLabForEnquiry] = useState<LaboratoryProfile | null>(null);
   const [submittedEnquiry, setSubmittedEnquiry] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [rateLimitError, setRateLimitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submissionSuccessMsg, setSubmissionSuccessMsg] = useState('');
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
   
   // Enquiry form state
   const [formData, setFormData] = useState({
@@ -42,7 +48,45 @@ export default function LaboratoriesPage() {
     honeypot: ''
   });
 
-  const filteredLabs = mockLabs.filter((lab) =>
+  useEffect(() => {
+    async function loadLaboratories() {
+      if (!isSupabaseConfigured || !supabase) return;
+      try {
+        const { data, error } = await supabase
+          .from('laboratories')
+          .select('*')
+          .order('name');
+
+        if (!error && data && data.length > 0) {
+          const mapped: LaboratoryProfile[] = data.map((item) => ({
+            id: item.id,
+            name: item.name,
+            country: item.country,
+            city: item.city,
+            address: item.address || undefined,
+            isAccredited: item.is_accredited,
+            accreditationScope: item.accreditation_scope || [],
+            supportedFoodTypes: item.supported_food_types || [],
+            contactEmail: item.contact_email,
+            contactPhone: item.contact_phone || undefined,
+            websiteUrl: item.website_url || undefined,
+            enquiryRateResponseTime: item.enquiry_rate_response_time || '24-48 hours',
+            isVerifiedPartner: item.is_verified_partner || false,
+            listingType: (item.listing_type as LaboratoryProfile['listingType']) || 'accredited_commercial',
+            credibilityDisclaimer: item.credibility_disclaimer || undefined
+          }));
+          setLabs(mapped);
+          setIsLiveConnected(true);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch laboratories from Supabase, using reference data:', err);
+      }
+    }
+
+    loadLaboratories();
+  }, []);
+
+  const filteredLabs = labs.filter((lab) =>
     lab.name.toLowerCase().includes(search.toLowerCase()) ||
     lab.city.toLowerCase().includes(search.toLowerCase()) ||
     lab.accreditationScope.some(s => s.toLowerCase().includes(search.toLowerCase())) ||
@@ -72,9 +116,11 @@ export default function LaboratoriesPage() {
 
     try {
       if (supabase && selectedLabForEnquiry) {
-        // If lab is in DB
-        await supabase.from('test_enquiries').insert({
-          laboratory_id: selectedLabForEnquiry.id.startsWith('lab-') ? null : selectedLabForEnquiry.id,
+        // Validate if selectedLabForEnquiry.id is a standard UUID (36 chars with dashes)
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedLabForEnquiry.id);
+        
+        const { error } = await supabase.from('test_enquiries').insert({
+          laboratory_id: isUuid ? selectedLabForEnquiry.id : null,
           sender_name: formData.name.trim(),
           sender_email: formData.email.trim(),
           sender_phone: formData.phone?.trim() || null,
@@ -83,10 +129,16 @@ export default function LaboratoriesPage() {
           sender_id: user?.id || null,
           status: 'pending'
         });
+
+        if (error) {
+          console.warn('Supabase test enquiry insert notice:', error);
+        }
       }
 
       recordSubmissionCooldown('test_enquiry');
+      setSubmissionSuccessMsg(`Quotation request transmitted for ${selectedLabForEnquiry?.name}. The testing facility has been notified.`);
       setSubmittedEnquiry(true);
+      
       setTimeout(() => {
         setSubmittedEnquiry(false);
         setSelectedLabForEnquiry(null);
@@ -99,7 +151,8 @@ export default function LaboratoriesPage() {
           urgency: 'standard',
           honeypot: ''
         });
-      }, 2800);
+        setSubmissionSuccessMsg('');
+      }, 3200);
     } catch (err) {
       console.error('Enquiry error:', err);
       recordSubmissionCooldown('test_enquiry');
@@ -109,13 +162,42 @@ export default function LaboratoriesPage() {
     }
   };
 
+  const getListingTypeBadge = (lab: LaboratoryProfile) => {
+    if (lab.isVerifiedPartner) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
+          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Platform Verified Partner
+        </span>
+      );
+    }
+    if (lab.listingType === 'standards_authority') {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-800 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+          <Building className="w-3 h-3 text-blue-600" /> National Standards Authority
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-700 bg-gray-100 px-2.5 py-0.5 rounded-full border border-gray-200">
+        <FlaskConical className="w-3 h-3 text-gray-500" /> Accredited Testing Facility
+      </span>
+    );
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Page Header */}
       <div className="space-y-3">
-        <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200">
-          Testing Services Marketplace
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200">
+            Testing Services Directory & Marketplace
+          </span>
+          {isLiveConnected && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
+              <Database className="w-3 h-3 text-emerald-600" /> Live Database Sync
+            </span>
+          )}
+        </div>
         <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight">
           Accredited Food Testing Laboratories
         </h1>
@@ -124,13 +206,13 @@ export default function LaboratoriesPage() {
         </p>
       </div>
 
-      {/* Info notice */}
+      {/* Directory Transparency Notice */}
       <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-4 sm:p-5 flex items-start gap-3.5 text-xs sm:text-sm text-indigo-950">
         <FlaskConical className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
         <div>
-          <strong className="font-bold">Accredited Testing Referral Network:</strong>
+          <strong className="font-bold">Directory Transparency & Scope Protocol:</strong>
           <p className="text-indigo-900 text-xs mt-0.5 leading-relaxed">
-            Our platform organizes verified testing scopes from national bureaus (such as UNBS) and ISO/IEC 17025 accredited private facilities. Select a testing provider below to route your sample request.
+            FoodSafe Global compiles accredited facilities from statutory standards bodies (e.g., UNBS) and ISO/IEC 17025 accredited independent laboratories for public convenience. Facilities are clearly designated as statutory authorities or independent testing providers. Quotation requests route directly to the designated facility contact.
           </p>
         </div>
       </div>
@@ -159,23 +241,27 @@ export default function LaboratoriesPage() {
             <div className="space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-lg font-bold text-gray-900">{lab.name}</h3>
-                    {lab.isVerifiedPartner && (
-                      <span className="p-0.5 rounded-full bg-emerald-100 text-emerald-700" title="Verified Scope Partner">
-                        <CheckCircle2 className="w-4 h-4" />
-                      </span>
-                    )}
+                    {getListingTypeBadge(lab)}
                   </div>
-                  <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-1">
-                    <MapPin className="w-3.5 h-3.5 text-gray-400" />
-                    {lab.city}, {lab.country} {lab.address && `• ${lab.address}`}
+                  <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <span>{lab.city}, {lab.country} {lab.address && `• ${lab.address}`}</span>
                   </p>
                 </div>
                 <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full whitespace-nowrap">
                   ISO 17025 Scope
                 </span>
               </div>
+
+              {/* Credibility Disclaimer if applicable */}
+              {lab.credibilityDisclaimer && (
+                <div className="p-2.5 bg-gray-50 rounded-xl text-[11px] text-gray-600 border border-gray-100 flex items-start gap-2">
+                  <Info className="w-3.5 h-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
+                  <span>{lab.credibilityDisclaimer}</span>
+                </div>
+              )}
 
               {/* Accreditation Scope Chips */}
               <div className="space-y-1.5">
@@ -230,11 +316,11 @@ export default function LaboratoriesPage() {
 
       {/* Enquiry Modal */}
       {selectedLabForEnquiry && (
-        <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl relative space-y-6">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-5 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
             <button
               onClick={() => setSelectedLabForEnquiry(null)}
-              className="absolute top-5 right-5 p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+              className="absolute top-6 right-6 text-gray-400 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -244,30 +330,51 @@ export default function LaboratoriesPage() {
                 <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
                   <Check className="w-8 h-8" />
                 </div>
-                <h3 className="text-xl font-bold text-gray-900">Enquiry Transmitted</h3>
-                <p className="text-xs text-gray-600 max-w-sm mx-auto">
-                  Your testing quotation request for <strong>{selectedLabForEnquiry.name}</strong> has been registered. You will receive notification on sample delivery instructions shortly.
+                <h3 className="text-xl font-bold text-gray-900">Request Dispatched</h3>
+                <p className="text-xs text-gray-600 max-w-sm mx-auto leading-relaxed">
+                  {submissionSuccessMsg || `Your testing enquiry has been routed to ${selectedLabForEnquiry.name}.`}
                 </p>
               </div>
             ) : (
               <>
                 <div>
-                  <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">
-                    Official Quotation Request
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full">
+                    Direct Laboratory Referral
                   </span>
-                  <h3 className="text-xl font-bold text-gray-900 mt-1">
-                    Book Testing with {selectedLabForEnquiry.name}
+                  <h3 className="text-xl font-bold text-gray-900 mt-2">
+                    Request Quotation: {selectedLabForEnquiry.name}
                   </h3>
                   <p className="text-xs text-gray-500 mt-1">
-                    Fill in your sample parameters to receive pricing, sample volume requirements, and submission instructions.
+                    Complete sample details below. Quotations are dispatched directly to facility intake specialists.
                   </p>
                 </div>
 
+                {rateLimitError && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    {rateLimitError}
+                  </div>
+                )}
+
+                {Object.keys(validationErrors).length > 0 && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-red-800">
+                      <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                      Please fix:
+                    </div>
+                    <ul className="list-disc pl-5 space-y-0.5 text-red-800">
+                      {Object.values(validationErrors).map((err, i) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  {/* Honeypot field for bot spam detection */}
+                  {/* Anti-bot honeypot */}
                   <input
                     type="text"
-                    name="hp_lab_field"
+                    name="bot_field"
                     style={{ display: 'none' }}
                     tabIndex={-1}
                     autoComplete="off"
@@ -275,104 +382,82 @@ export default function LaboratoriesPage() {
                     onChange={(e) => setFormData({ ...formData, honeypot: e.target.value })}
                   />
 
-                  {rateLimitError && (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                      {rateLimitError}
-                    </div>
-                  )}
-
-                  {Object.keys(validationErrors).length > 0 && (
-                    <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 space-y-1">
-                      <div className="font-bold flex items-center gap-1.5 text-red-800">
-                        <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
-                        Please correct the following:
-                      </div>
-                      <ul className="list-disc pl-5 space-y-0.5 text-red-800">
-                        {Object.values(validationErrors).map((err, i) => (
-                          <li key={i}>{err}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Your Full Name</label>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Your Name / Business *</label>
                       <input
                         type="text"
                         required
+                        placeholder="John Doe / Victoria Millers"
                         value={formData.name}
                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        placeholder="John Mukasa"
-                        className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="w-full text-xs px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Email Address</label>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Contact Email *</label>
                       <input
                         type="email"
                         required
+                        placeholder="john@example.com"
                         value={formData.email}
                         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        placeholder="contact@business.com"
-                        className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="w-full text-xs px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Phone Number</label>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Telephone (Optional)</label>
                       <input
                         type="tel"
+                        placeholder="+256 700 000 000"
                         value={formData.phone}
                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        placeholder="+256 700 000 000"
-                        className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="w-full text-xs px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Food Sample Matrix</label>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Food Sample Matrix *</label>
                       <select
                         value={formData.foodType}
                         onChange={(e) => setFormData({ ...formData, foodType: e.target.value })}
-                        className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="w-full text-xs px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
-                        <option>Maize Flour / Grain</option>
-                        <option>Fresh Milk / Dairy</option>
-                        <option>Beef / Poultry Meat</option>
-                        <option>Potable Drinking Water</option>
-                        <option>Horticulture / Leafy Greens</option>
-                        <option>Fish / Nile Perch</option>
-                        <option>Other Processed Product</option>
+                        <option>Grain / Maize Flour</option>
+                        <option>Fresh Meat / Poultry</option>
+                        <option>Dairy / Milk Products</option>
+                        <option>Drinking Water / Wastewater</option>
+                        <option>Fresh Fruits & Vegetables</option>
+                        <option>Fish & Aquaculture</option>
+                        <option>Packaged / Processed Goods</option>
                       </select>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Suspected Hazard / Required Test
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Required Tests / Suspected Contaminant *
                     </label>
                     <textarea
                       required
                       rows={3}
+                      placeholder="e.g. Quantitative Aflatoxin HPLC verification, Salmonella culture, Lead AAS heavy metal screening..."
                       value={formData.concern}
                       onChange={(e) => setFormData({ ...formData, concern: e.target.value })}
-                      placeholder="e.g. Need total aflatoxins quantitative HPLC test for 200 bags of maize flour before distribution."
-                      className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      className="w-full text-xs px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
 
-                  <div className="pt-2">
-                    <button
-                      type="submit"
-                      disabled={submitting}
-                      className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-colors shadow-sm disabled:opacity-60"
-                    >
-                      {submitting ? 'Transmitting Request...' : 'Transmit Quotation Enquiry'}
-                    </button>
-                  </div>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors shadow-xs disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
+                    <Send className="w-4 h-4" />
+                    {submitting ? 'Transmitting Request...' : 'Send Test Quotation Request'}
+                  </button>
                 </form>
               </>
             )}

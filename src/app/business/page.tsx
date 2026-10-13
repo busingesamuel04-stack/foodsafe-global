@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { 
   Building2, 
   CheckSquare, 
@@ -16,14 +18,23 @@ import {
   Download,
   ShieldCheck,
   TrendingUp,
-  Sparkles
+  Sparkles,
+  Database,
+  Building,
+  RefreshCw,
+  PlusCircle,
+  X
 } from 'lucide-react';
-import { HygieneCheckItem, TemperatureRecord, BatchRecord } from '@/types';
+import { HygieneCheckItem, TemperatureRecord, BatchRecord, Organization } from '@/types';
 
 export default function BusinessPage() {
+  const { user, profile } = useAuth();
   const [activeTab, setActiveTab] = useState<'checklists' | 'temperature' | 'batches'>('checklists');
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
 
-  // Interactive Checklist State
+  // Checklists State
   const [checklists, setChecklists] = useState<HygieneCheckItem[]>([
     { id: 'chk-1', area: 'Prep Kitchen', task: 'Sanitize stainless steel food contact workbenches (Sodium Hypochlorite 200ppm)', status: 'passed', checkedBy: 'Chef Sarah', checkedAt: '08:15 AM' },
     { id: 'chk-2', area: 'Butchery Area', task: 'Wash and sterilize raw meat slicer and knives (82°C hot water rinse)', status: 'passed', checkedBy: 'Sam Butcher', checkedAt: '08:30 AM' },
@@ -32,7 +43,7 @@ export default function BusinessPage() {
     { id: 'chk-5', area: 'Dry Grain Storage', task: 'Inspect maize flour pallet stacks for moisture ingress or rodent droppings', status: 'passed', checkedBy: 'Grace QA', checkedAt: '09:00 AM' }
   ]);
 
-  // Interactive Temperature Logs State
+  // Temperature Logs State
   const [temperatureLogs, setTemperatureLogs] = useState<TemperatureRecord[]>([
     { id: 'temp-1', unitName: 'Main Walk-In Cooler', targetMinTempC: 1, targetMaxTempC: 4, recordedTempC: 3.2, isWithinSafeRange: true, recordedBy: 'David K.', timestamp: 'Today, 07:30 AM' },
     { id: 'temp-2', unitName: 'Deep Meat Freezer #1', targetMinTempC: -22, targetMaxTempC: -18, recordedTempC: -19.4, isWithinSafeRange: true, recordedBy: 'David K.', timestamp: 'Today, 07:30 AM' },
@@ -40,10 +51,7 @@ export default function BusinessPage() {
     { id: 'temp-4', unitName: 'Hot Hold Bain-Marie', targetMinTempC: 63, targetMaxTempC: 85, recordedTempC: 68.5, isWithinSafeRange: true, recordedBy: 'Chef Sarah', timestamp: 'Today, 11:45 AM' }
   ]);
 
-  const [newTempUnit, setNewTempUnit] = useState('Main Walk-In Cooler');
-  const [newTempReading, setNewTempReading] = useState('');
-
-  // Interactive Batch Records
+  // Batch Records State
   const [batchRecords, setBatchRecords] = useState<BatchRecord[]>([
     { id: 'bat-1', productName: 'Grade 1 Maize Flour (50kg)', batchNumber: 'MF-2025-09-44', receivedDate: '2025-09-20', expiryDate: '2026-03-20', supplierName: 'Victoria Millers Ltd', status: 'fresh', storageLocation: 'Pallet B4' },
     { id: 'bat-2', productName: 'Pasteurized Whole Milk (100L)', batchNumber: 'DAIRY-LOT-881', receivedDate: '2025-10-10', expiryDate: '2025-10-16', supplierName: 'Pearl Dairies', status: 'approaching_expiry', storageLocation: 'Cold Room Shelf 2' },
@@ -51,24 +59,234 @@ export default function BusinessPage() {
     { id: 'bat-4', productName: 'Bulk Unrefined Cooking Oil', batchNumber: 'OIL-TEST-004', receivedDate: '2025-09-01', expiryDate: '2025-09-30', supplierName: 'Unknown Vendor', status: 'quarantined', storageLocation: 'Quarantine Bay A' }
   ]);
 
-  // Toggle checklist status
-  const toggleChecklistStatus = (id: string) => {
-    setChecklists(prev => prev.map(item => {
-      if (item.id === id) {
-        const nextStatus = item.status === 'passed' ? 'failed' : item.status === 'failed' ? 'pending' : 'passed';
+  // Form Inputs
+  const [newTempUnit, setNewTempUnit] = useState('Main Walk-In Cooler');
+  const [newTempReading, setNewTempReading] = useState('');
+  
+  // Modals
+  const [showAddBatchModal, setShowAddBatchModal] = useState(false);
+  const [newBatch, setNewBatch] = useState({
+    productName: '',
+    batchNumber: '',
+    supplierName: '',
+    receivedDate: new Date().toISOString().slice(0, 10),
+    expiryDate: '',
+    storageLocation: 'Main Storage Shelf 1',
+    status: 'fresh' as BatchRecord['status']
+  });
+
+  const [showAddChecklistModal, setShowAddChecklistModal] = useState(false);
+  const [newChecklist, setNewChecklist] = useState({
+    area: 'Kitchen Area',
+    task: ''
+  });
+
+  // Load Organization & Business Records from Supabase
+  useEffect(() => {
+    async function initBusinessWorkspace() {
+      if (!isSupabaseConfigured || !supabase || !user) return;
+      setLoadingData(true);
+
+      try {
+        // 1. Fetch user's organization
+        let currentOrg: Organization | null = null;
+        const { data: orgData, error: orgError } = await supabase
+          .from('organizations')
+          .select('*')
+          .limit(1);
+
+        if (!orgError && orgData && orgData.length > 0) {
+          const raw = orgData[0];
+          currentOrg = {
+            id: raw.id,
+            name: raw.name,
+            ownerId: raw.owner_id,
+            industryType: raw.industry_type,
+            subscriptionTier: raw.subscription_tier,
+            createdAt: raw.created_at
+          };
+          setOrganization(currentOrg);
+          setIsLiveConnected(true);
+        } else if (user) {
+          // Auto-provision initial organization for business owner if none exists
+          const orgName = profile?.fullName ? `${profile.fullName}'s Food Enterprise` : 'My Food Enterprise';
+          const { data: newOrgData, error: createOrgErr } = await supabase
+            .from('organizations')
+            .insert({
+              name: orgName,
+              owner_id: user.id,
+              industry_type: 'restaurant',
+              subscription_tier: 'free'
+            })
+            .select('*')
+            .single();
+
+          if (!createOrgErr && newOrgData) {
+            currentOrg = {
+              id: newOrgData.id,
+              name: newOrgData.name,
+              ownerId: newOrgData.owner_id,
+              industryType: newOrgData.industry_type,
+              subscriptionTier: newOrgData.subscription_tier,
+              createdAt: newOrgData.created_at
+            };
+            setOrganization(currentOrg);
+            setIsLiveConnected(true);
+          }
+        }
+
+        // 2. If organization resolved, load its records
+        if (currentOrg) {
+          const orgId = currentOrg.id;
+
+          // Fetch checklists
+          const { data: chkData } = await supabase
+            .from('hygiene_checklists')
+            .select('*')
+            .eq('organization_id', orgId)
+            .order('created_at', { ascending: true });
+
+          if (chkData && chkData.length > 0) {
+            setChecklists(chkData.map(c => ({
+              id: c.id,
+              area: c.area,
+              task: c.task,
+              status: c.status as 'passed' | 'failed' | 'pending',
+              checkedBy: c.checked_by || undefined,
+              checkedAt: c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
+              notes: c.notes || undefined
+            })));
+          }
+
+          // Fetch temperature logs
+          const { data: tempData } = await supabase
+            .from('temperature_logs')
+            .select('*')
+            .eq('organization_id', orgId)
+            .order('logged_at', { ascending: false });
+
+          if (tempData && tempData.length > 0) {
+            setTemperatureLogs(tempData.map(t => ({
+              id: t.id,
+              unitName: t.unit_name,
+              recordedTempC: Number(t.recorded_temp_c),
+              targetMinTempC: Number(t.target_min_temp_c),
+              targetMaxTempC: Number(t.target_max_temp_c),
+              isWithinSafeRange: Boolean(t.is_within_safe_range),
+              recordedBy: t.recorded_by,
+              timestamp: new Date(t.logged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              correctiveActionTaken: t.corrective_action || undefined
+            })));
+          }
+
+          // Fetch batch records
+          const { data: batData } = await supabase
+            .from('batch_records')
+            .select('*')
+            .eq('organization_id', orgId)
+            .order('created_at', { ascending: false });
+
+          if (batData && batData.length > 0) {
+            setBatchRecords(batData.map(b => ({
+              id: b.id,
+              productName: b.product_name,
+              batchNumber: b.batch_number,
+              receivedDate: b.received_date,
+              expiryDate: b.expiry_date,
+              supplierName: b.supplier_name,
+              status: b.status as BatchRecord['status'],
+              storageLocation: b.storage_location || 'Storage Bay'
+            })));
+          }
+        }
+      } catch (err) {
+        console.warn('Error connecting to Supabase business records:', err);
+      } finally {
+        setLoadingData(false);
+      }
+    }
+
+    initBusinessWorkspace();
+  }, [user, profile]);
+
+  // Toggle checklist status and persist to Supabase
+  const toggleChecklistStatus = async (id: string) => {
+    const item = checklists.find(c => c.id === id);
+    if (!item) return;
+
+    const nextStatus = item.status === 'passed' ? 'failed' : item.status === 'failed' ? 'pending' : 'passed';
+    const checker = nextStatus !== 'pending' ? (profile?.fullName || 'Duty Supervisor') : undefined;
+    const timeStr = nextStatus !== 'pending' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined;
+
+    setChecklists(prev => prev.map(c => {
+      if (c.id === id) {
         return {
-          ...item,
+          ...c,
           status: nextStatus,
-          checkedBy: nextStatus !== 'pending' ? 'Duty Manager' : undefined,
-          checkedAt: nextStatus !== 'pending' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined
+          checkedBy: checker,
+          checkedAt: timeStr
         };
       }
-      return item;
+      return c;
     }));
+
+    // Persist to Supabase if UUID and connected
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    if (supabase && organization && isUuid) {
+      try {
+        await supabase
+          .from('hygiene_checklists')
+          .update({
+            status: nextStatus,
+            checked_by: checker || null
+          })
+          .eq('id', id);
+      } catch (err) {
+        console.warn('Could not update checklist item in Supabase:', err);
+      }
+    }
   };
 
-  // Add Temperature reading
-  const handleAddTemp = (e: React.FormEvent) => {
+  // Add new checklist task
+  const handleAddChecklistTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newChecklist.task.trim()) return;
+
+    const newItem: HygieneCheckItem = {
+      id: `chk-${Date.now()}`,
+      area: newChecklist.area,
+      task: newChecklist.task.trim(),
+      status: 'pending'
+    };
+
+    if (supabase && organization) {
+      try {
+        const { data, error } = await supabase
+          .from('hygiene_checklists')
+          .insert({
+            organization_id: organization.id,
+            area: newChecklist.area,
+            task: newChecklist.task.trim(),
+            status: 'pending'
+          })
+          .select('id')
+          .single();
+
+        if (!error && data) {
+          newItem.id = data.id;
+        }
+      } catch (err) {
+        console.warn('Failed to insert checklist to Supabase:', err);
+      }
+    }
+
+    setChecklists([...checklists, newItem]);
+    setNewChecklist({ area: 'Kitchen Area', task: '' });
+    setShowAddChecklistModal(false);
+  };
+
+  // Add Temperature reading and persist to Supabase
+  const handleAddTemp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTempReading) return;
     const tempNum = parseFloat(newTempReading);
@@ -77,6 +295,8 @@ export default function BusinessPage() {
     const min = isFreezer ? -22 : isCooler ? 1 : 60;
     const max = isFreezer ? -18 : isCooler ? 4 : 85;
     const isSafe = tempNum >= min && tempNum <= max;
+    const recordedBy = profile?.fullName || 'Duty Supervisor';
+    const correctiveAction = isSafe ? undefined : 'Flagged for inspection by technical maintenance';
 
     const newEntry: TemperatureRecord = {
       id: `temp-${Date.now()}`,
@@ -85,13 +305,91 @@ export default function BusinessPage() {
       targetMaxTempC: max,
       recordedTempC: tempNum,
       isWithinSafeRange: isSafe,
-      recordedBy: 'Duty Supervisor',
+      recordedBy,
       timestamp: 'Just now',
-      correctiveActionTaken: isSafe ? undefined : 'Flagged for inspection by technical maintenance'
+      correctiveActionTaken: correctiveAction
     };
+
+    if (supabase && organization) {
+      try {
+        const { data, error } = await supabase
+          .from('temperature_logs')
+          .insert({
+            organization_id: organization.id,
+            unit_name: newTempUnit,
+            recorded_temp_c: tempNum,
+            target_min_temp_c: min,
+            target_max_temp_c: max,
+            recorded_by: recordedBy,
+            corrective_action: correctiveAction || null
+          })
+          .select('id')
+          .single();
+
+        if (!error && data) {
+          newEntry.id = data.id;
+        }
+      } catch (err) {
+        console.warn('Failed to insert temperature log to Supabase:', err);
+      }
+    }
 
     setTemperatureLogs([newEntry, ...temperatureLogs]);
     setNewTempReading('');
+  };
+
+  // Add new Batch Record and persist to Supabase
+  const handleAddBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBatch.productName || !newBatch.batchNumber || !newBatch.expiryDate) return;
+
+    const newRecord: BatchRecord = {
+      id: `bat-${Date.now()}`,
+      productName: newBatch.productName.trim(),
+      batchNumber: newBatch.batchNumber.trim(),
+      supplierName: newBatch.supplierName.trim() || 'Direct Producer',
+      receivedDate: newBatch.receivedDate,
+      expiryDate: newBatch.expiryDate,
+      status: newBatch.status,
+      storageLocation: newBatch.storageLocation.trim()
+    };
+
+    if (supabase && organization) {
+      try {
+        const { data, error } = await supabase
+          .from('batch_records')
+          .insert({
+            organization_id: organization.id,
+            product_name: newBatch.productName.trim(),
+            batch_number: newBatch.batchNumber.trim(),
+            supplier_name: newBatch.supplierName.trim() || 'Direct Producer',
+            received_date: newBatch.receivedDate,
+            expiry_date: newBatch.expiryDate,
+            status: newBatch.status,
+            storage_location: newBatch.storageLocation.trim()
+          })
+          .select('id')
+          .single();
+
+        if (!error && data) {
+          newRecord.id = data.id;
+        }
+      } catch (err) {
+        console.warn('Failed to insert batch record to Supabase:', err);
+      }
+    }
+
+    setBatchRecords([newRecord, ...batchRecords]);
+    setNewBatch({
+      productName: '',
+      batchNumber: '',
+      supplierName: '',
+      receivedDate: new Date().toISOString().slice(0, 10),
+      expiryDate: '',
+      storageLocation: 'Main Storage Shelf 1',
+      status: 'fresh'
+    });
+    setShowAddBatchModal(false);
   };
 
   // Export CSV Handler
@@ -113,11 +411,20 @@ export default function BusinessPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-              B2B SaaS Workspace
+              B2B HACCP Workspace
             </span>
-            <span className="text-xs font-semibold text-gray-500">Demo Organization: Serena Hotel Kitchens</span>
+            {isLiveConnected && organization ? (
+              <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                <Database className="w-3.5 h-3.5 text-emerald-600" />
+                Live Organization: {organization.name}
+              </span>
+            ) : (
+              <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
+                Demo Organization: Serena Hotel Kitchens (Local Evaluation)
+              </span>
+            )}
           </div>
           <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight">
             Food Business Safety & Compliance Suite
@@ -155,7 +462,9 @@ export default function BusinessPage() {
           <p className="text-2xl font-black text-gray-900">
             {checklists.filter(c => c.status === 'passed').length} / {checklists.length}
           </p>
-          <p className="text-xs text-brand-700 font-medium">60% Completed for Morning Shift</p>
+          <p className="text-xs text-brand-700 font-medium">
+            {checklists.length > 0 ? Math.round((checklists.filter(c => c.status === 'passed').length / checklists.length) * 100) : 0}% Sanitation Completed
+          </p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-2xs space-y-1">
@@ -166,7 +475,9 @@ export default function BusinessPage() {
           <p className="text-2xl font-black text-gray-900">
             {temperatureLogs.filter(t => t.isWithinSafeRange).length} / {temperatureLogs.length} Units Safe
           </p>
-          <p className="text-xs text-amber-600 font-medium">1 temperature breach logged & resolved</p>
+          <p className="text-xs text-amber-600 font-medium">
+            {temperatureLogs.filter(t => !t.isWithinSafeRange).length} breach(es) logged & monitored
+          </p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-2xs space-y-1">
@@ -175,7 +486,9 @@ export default function BusinessPage() {
             <Layers className="w-4 h-4 text-purple-600" />
           </span>
           <p className="text-2xl font-black text-gray-900">{batchRecords.length} Active Lots</p>
-          <p className="text-xs text-gray-500 font-medium">1 quarantined lot awaiting testing</p>
+          <p className="text-xs text-gray-500 font-medium">
+            {batchRecords.filter(b => b.status === 'quarantined').length} quarantined lot(s)
+          </p>
         </div>
       </div>
 
@@ -188,7 +501,7 @@ export default function BusinessPage() {
           }`}
         >
           <CheckSquare className="w-4 h-4" />
-          Daily Hygiene Checklists
+          Daily Hygiene Checklists ({checklists.length})
         </button>
         <button
           onClick={() => setActiveTab('temperature')}
@@ -197,7 +510,7 @@ export default function BusinessPage() {
           }`}
         >
           <Thermometer className="w-4 h-4" />
-          Refrigeration Temperature Logs
+          Refrigeration Temperature Logs ({temperatureLogs.length})
         </button>
         <button
           onClick={() => setActiveTab('batches')}
@@ -206,21 +519,29 @@ export default function BusinessPage() {
           }`}
         >
           <Layers className="w-4 h-4" />
-          Batch & Expiration Tracking
+          Batch & Expiration Tracking ({batchRecords.length})
         </button>
       </div>
 
       {/* Tab 1: Hygiene Checklists */}
       {activeTab === 'checklists' && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-900">Operational Sanitation Checklist</h3>
               <p className="text-xs text-gray-500">Tap status button to toggle between Passed, Failed, or Pending.</p>
             </div>
-            <span className="text-xs bg-gray-100 text-gray-700 px-3 py-1 rounded-full font-medium">
-              Shift: Morning Kitchen Setup
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowAddChecklistModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-semibold"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Task
+              </button>
+              <span className="text-xs bg-gray-100 text-gray-700 px-3 py-1 rounded-full font-medium">
+                Shift: Current Rotation
+              </span>
+            </div>
           </div>
 
           <div className="divide-y divide-gray-100">
@@ -232,7 +553,7 @@ export default function BusinessPage() {
                   {item.checkedBy && (
                     <p className="text-xs text-gray-500 flex items-center gap-1">
                       <Clock className="w-3 h-3 text-gray-400" />
-                      Verified by {item.checkedBy} at {item.checkedAt}
+                      Verified by {item.checkedBy} {item.checkedAt && `at ${item.checkedAt}`}
                     </p>
                   )}
                 </div>
@@ -358,11 +679,17 @@ export default function BusinessPage() {
       {/* Tab 3: Batch Tracker */}
       {activeTab === 'batches' && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden p-6 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-bold text-gray-900">Food Inventory & Batch Records</h3>
               <p className="text-xs text-gray-500">Track delivery lot numbers, suppliers, and expiration windows.</p>
             </div>
+            <button
+              onClick={() => setShowAddBatchModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs transition-colors self-start sm:self-auto"
+            >
+              <Plus className="w-3.5 h-3.5" /> Register Food Batch
+            </button>
           </div>
 
           <div className="overflow-x-auto">
@@ -396,12 +723,174 @@ export default function BusinessPage() {
                       {batch.status === 'quarantined' && (
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-800">Quarantined</span>
                       )}
+                      {batch.status === 'expired' && (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-200 text-red-900">Expired</span>
+                      )}
                     </td>
                     <td className="p-3 text-gray-600">{batch.storageLocation}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add Batch */}
+      {showAddBatchModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+            <button
+              onClick={() => setShowAddBatchModal(false)}
+              className="absolute top-5 right-5 text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-lg font-bold text-gray-900">Register Food Batch / Lot</h3>
+
+            <form onSubmit={handleAddBatch} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Product Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Pasteurized Milk 500ml"
+                  value={newBatch.productName}
+                  onChange={(e) => setNewBatch({ ...newBatch, productName: e.target.value })}
+                  className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Batch / Lot # *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="LOT-2025-01"
+                    value={newBatch.batchNumber}
+                    onChange={(e) => setNewBatch({ ...newBatch, batchNumber: e.target.value })}
+                    className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Supplier</label>
+                  <input
+                    type="text"
+                    placeholder="Supplier Co."
+                    value={newBatch.supplierName}
+                    onChange={(e) => setNewBatch({ ...newBatch, supplierName: e.target.value })}
+                    className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Received Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={newBatch.receivedDate}
+                    onChange={(e) => setNewBatch({ ...newBatch, receivedDate: e.target.value })}
+                    className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Expiry Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={newBatch.expiryDate}
+                    onChange={(e) => setNewBatch({ ...newBatch, expiryDate: e.target.value })}
+                    className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Status</label>
+                  <select
+                    value={newBatch.status}
+                    onChange={(e) => setNewBatch({ ...newBatch, status: e.target.value as BatchRecord['status'] })}
+                    className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:outline-none"
+                  >
+                    <option value="fresh">Fresh</option>
+                    <option value="approaching_expiry">Approaching Expiry</option>
+                    <option value="quarantined">Quarantined</option>
+                    <option value="expired">Expired</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Storage Location</label>
+                  <input
+                    type="text"
+                    placeholder="Bay / Shelf"
+                    value={newBatch.storageLocation}
+                    onChange={(e) => setNewBatch({ ...newBatch, storageLocation: e.target.value })}
+                    className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs mt-2"
+              >
+                Save Batch Record
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add Checklist Task */}
+      {showAddChecklistModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+            <button
+              onClick={() => setShowAddChecklistModal(false)}
+              className="absolute top-5 right-5 text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-lg font-bold text-gray-900">Add Sanitation Checklist Task</h3>
+
+            <form onSubmit={handleAddChecklistTask} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Station / Area *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Prep Kitchen, Walk-in Cooler, Cold Storage"
+                  value={newChecklist.area}
+                  onChange={(e) => setNewChecklist({ ...newChecklist, area: e.target.value })}
+                  className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Sanitation Task Description *</label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="e.g. Disinfect cutting surfaces with chlorine sanitizing solution..."
+                  value={newChecklist.task}
+                  onChange={(e) => setNewChecklist({ ...newChecklist, task: e.target.value })}
+                  className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white font-semibold text-xs mt-2"
+              >
+                Add Checklist Item
+              </button>
+            </form>
           </div>
         </div>
       )}
