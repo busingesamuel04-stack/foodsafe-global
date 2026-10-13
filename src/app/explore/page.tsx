@@ -12,7 +12,8 @@ import {
   AlertTriangle, 
   Info, 
   ChevronDown, 
-  ChevronUp
+  ChevronUp,
+  Tag
 } from 'lucide-react';
 
 export default function ExplorePage() {

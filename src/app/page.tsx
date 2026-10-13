@@ -8,9 +8,13 @@ import {
   AlertTriangle, 
   Building2, 
   FlaskConical, 
+  FileCheck, 
   ChevronRight, 
+  Thermometer, 
+  Microscope, 
   ArrowRight,
-  CheckCircle2
+  CheckCircle2,
+  ExternalLink
 } from 'lucide-react';
 import { mockFoods } from '@/lib/data/mockFoods';
 import { mockAlerts } from '@/lib/data/mockAlerts';

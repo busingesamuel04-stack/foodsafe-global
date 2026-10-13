@@ -2,13 +2,16 @@
 
 import React, { useState } from 'react';
 import { 
+  ShieldCheck, 
   AlertTriangle, 
   FlaskConical, 
+  FileText, 
   Check, 
   X, 
   Plus, 
   Eye, 
   Trash2, 
+  ExternalLink,
   BookOpen
 } from 'lucide-react';
 import { mockAlerts } from '@/lib/data/mockAlerts';
@@ -21,8 +24,8 @@ export default function AdminPage() {
 
   // Local admin states for live management
   const [alerts, setAlerts] = useState<FoodAlert[]>(mockAlerts);
-  const [foods] = useState<FoodProfile[]>(mockFoods);
-  const [labs] = useState<LaboratoryProfile[]>(mockLabs);
+  const [foods, setFoods] = useState<FoodProfile[]>(mockFoods);
+  const [labs, setLabs] = useState<LaboratoryProfile[]>(mockLabs);
 
   // New Alert Form state
   const [newAlertTitle, setNewAlertTitle] = useState('');
