@@ -4,17 +4,14 @@ import React, { useState } from 'react';
 import { mockLabs } from '@/lib/data/mockLabs';
 import { LaboratoryProfile } from '@/types';
 import { 
-  FlaskConical, 
+  FlaskConical,
   CheckCircle2, 
   MapPin, 
-  Mail, 
-  Phone, 
   ExternalLink, 
   Send, 
   Search, 
   Clock, 
   Check, 
-  ShieldCheck,
   X
 } from 'lucide-react';
 

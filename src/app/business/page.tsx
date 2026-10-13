@@ -3,19 +3,15 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { 
-  Building2, 
   CheckSquare, 
   Thermometer, 
   Layers, 
-  FileDown, 
   AlertCircle, 
   CheckCircle2, 
   XCircle, 
   Plus, 
   Clock, 
   Download,
-  ShieldCheck,
-  TrendingUp,
   Sparkles
 } from 'lucide-react';
 import { HygieneCheckItem, TemperatureRecord, BatchRecord } from '@/types';
@@ -44,7 +40,7 @@ export default function BusinessPage() {
   const [newTempReading, setNewTempReading] = useState('');
 
   // Interactive Batch Records
-  const [batchRecords, setBatchRecords] = useState<BatchRecord[]>([
+  const [batchRecords] = useState<BatchRecord[]>([
     { id: 'bat-1', productName: 'Grade 1 Maize Flour (50kg)', batchNumber: 'MF-2025-09-44', receivedDate: '2025-09-20', expiryDate: '2026-03-20', supplierName: 'Victoria Millers Ltd', status: 'fresh', storageLocation: 'Pallet B4' },
     { id: 'bat-2', productName: 'Pasteurized Whole Milk (100L)', batchNumber: 'DAIRY-LOT-881', receivedDate: '2025-10-10', expiryDate: '2025-10-16', supplierName: 'Pearl Dairies', status: 'approaching_expiry', storageLocation: 'Cold Room Shelf 2' },
     { id: 'bat-3', productName: 'Raw Beef Quarters (250kg)', batchNumber: 'BEEF-ABAT-129', receivedDate: '2025-10-12', expiryDate: '2025-10-15', supplierName: 'Municipal Certified Abattoir', status: 'fresh', storageLocation: 'Meat Chiller' },

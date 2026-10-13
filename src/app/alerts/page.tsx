@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { mockAlerts } from '@/lib/data/mockAlerts';
-import { FoodAlert, AlertVerificationStatus } from '@/types';
 import { SafetyBadge } from '@/components/SafetyBadge';
 import { 
   AlertTriangle, 

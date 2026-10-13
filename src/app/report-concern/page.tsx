@@ -3,13 +3,7 @@
 import React, { useState } from 'react';
 import { 
   AlertTriangle, 
-  ShieldAlert, 
-  CheckCircle, 
-  Upload, 
-  MapPin, 
-  Calendar, 
-  Building,
-  Info
+  CheckCircle 
 } from 'lucide-react';
 
 export default function ReportConcernPage() {

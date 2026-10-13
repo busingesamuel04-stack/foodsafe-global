@@ -18,10 +18,10 @@ export const Navbar: React.FC = () => {
             </div>
             <div>
               <span className="text-lg font-black tracking-tight text-gray-900 group-hover:text-brand-700 transition-colors">
-                FoodSafe<span className="text-brand-600">Global</span>
+                Food Safety<span className="text-brand-600"> Platform</span>
               </span>
               <span className="block text-[10px] text-gray-500 font-medium -mt-1 tracking-wider uppercase">
-                Safety & Detection Hub
+                Detection & Management Hub
               </span>
             </div>
           </Link>

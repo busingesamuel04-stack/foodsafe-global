@@ -1,111 +1,99 @@
-# SafeFood Global (FoodSafe)
+# Food Safety Platform
 
-> **All-in-One Food Safety Discovery, Contamination Intelligence & Food Business Management Platform**
+> **Worldwide platform combining food contamination education and risk guidance, a food safety information and alerts centre, an accredited laboratory testing directory, and food-business management software.**
 
-SafeFood Global bridges three critical audiences in a single, high-performance web platform designed to start with **$0 capital** and scale into a sustainable, cash-flowing business:
-
-1. **Consumers & Public (100% Free)**: Sourced food contamination guides (biological, chemical, physical hazards), safe handling protocols, verified public safety alerts, and community incident reporting.
-2. **Testing Laboratories & Providers (Marketplace)**: Verified directory of certified laboratories (e.g., UNBS Microbiology & Chemistry labs, ISO/IEC 17025 accredited facilities), sample testing scopes, and quotation leads.
-3. **Food Businesses (Primary Revenue Engine)**: B2B SaaS for restaurants, supermarkets, butcheries, and food processors to digitize daily hygiene checklists, cold-chain temperature logs (with automated danger threshold alerts), batch expiration tracking, and one-click compliance audit reports.
+Designed from the ground up to operate with **$0 starting capital** on verified commercial-compatible free tiers (Cloudflare Pages + Supabase PostgreSQL).
 
 ---
 
-## 🏗️ Technical Architecture & Free Commercial Tier
+## 1. Distinct Platform Experiences
 
-Built specifically to operate within permanent **$0 free allowances** that permit commercial SaaS use:
+The architecture plans 5 distinct user experiences across public, consumer, provider, business, and administrative personas:
 
-| Component | Provider / Technology | Monthly Cost | Free Plan Scope |
-| :--- | :--- | :--- | :--- |
-| **Frontend & UI** | Next.js 15, React 19, TypeScript, Tailwind CSS | **$0** | Static / Hybrid optimized |
-| **Hosting & CDN** | Cloudflare Pages | **$0** | Unlimited bandwidth, global edge network |
-| **Database & Auth** | Supabase (PostgreSQL with RLS) | **$0** | 500 MB PostgreSQL, 50,000 MAUs |
-| **Icons & Styling** | Lucide React & Tailwind CSS | **$0** | Open source |
-| **File Storage** | Supabase Storage | **$0** | 1 GB storage for incident & report evidence |
+```mermaid
+graph TD
+    A[Platform Architecture] --> B[1. Public Experience]
+    A --> C[2. Consumer Experience]
+    A --> D[3. Laboratory Provider]
+    A --> E[4. Food Business Member]
+    A --> F[5. Administrator Portal]
+
+    B --> B1[Food Contaminants Encyclopedia & Risk Guidance]
+    B --> B2[Verified Public Recall Notices & Health Alerts]
+    B --> B3[Scientific Disclaimers & Regulatory Reference Links]
+
+    C --> C1[Submit Suspected Contamination Reports]
+    C --> C2[Track Status of Community Concerns]
+    C --> C3[Request Lab Sample Testing Quotes]
+
+    D --> D1[Directory Profile & ISO/IEC 17025 Accreditation Scopes]
+    D --> D2[Receive Testing Sample Quotation Enquiries]
+    D --> D3[Verified Testing Partner Badge & Lead Analytics]
+
+    E --> E1[Daily Sanitation & Station Checklists]
+    E --> E2[Cold-Chain Fridge & Freezer Temperature Logs]
+    E --> E3[Batch Expiration & Supplier Traceability]
+    E --> E4[One-Click Audit CSV/PDF Compliance Reports]
+
+    F --> F1[Moderate Citizen Incident Submissions]
+    F --> F2[Publish Official Sourced Food Recalls]
+    F --> F3[Approve Laboratory Directory Listings]
+```
 
 ---
 
-## 🚀 Quick Start Guide
+## 2. Security Principles
 
-### 1. Local Development
+1. **Strict Secret Isolation**:
+   - Only `NEXT_PUBLIC_` variables are included in client bundles.
+   - `SUPABASE_SERVICE_ROLE_KEY` is **strictly restricted** to Cloudflare Pages Functions (`/functions/api/*`) or Cloudflare Workers. It is **never** referenced in frontend code.
+2. **Database Row Level Security (RLS)**:
+   - Every table in PostgreSQL has RLS enabled with explicit policies in `supabase/migrations/001_initial_schema.sql`.
+   - Multi-tenant business isolation prevents cross-tenant data leakage.
+3. **Scientific Detection Safeguards**:
+   - The platform clearly communicates that visual inspection and software cannot replace laboratory testing.
+   - Community incident reports remain in `under_review` status until verified by official bodies or certified testing.
+
+---
+
+## 3. Technology Stack & Free Tier Verification
+
+| Component | Technology | Provider | Cost | Commercial Terms Compatibility |
+| :--- | :--- | :--- | :--- | :--- |
+| **Frontend** | Next.js 15, React 19, TypeScript, Tailwind CSS | Cloudflare Pages | **$0** | Permitted on free plan. Unlimited bandwidth. |
+| **Server Functions** | Cloudflare Pages Functions (`/functions`) | Cloudflare | **$0** | 100,000 requests/day free allowance. |
+| **Database & Auth** | PostgreSQL with RLS, Supabase Auth | Supabase | **$0** | 500 MB database, 50,000 MAUs. |
+| **File Storage** | Supabase Storage | Supabase | **$0** | 1 GB storage for evidence files. |
+
+> [!IMPORTANT]
+> **Vercel Hobby Commercial Restriction**: Vercel Hobby terms explicitly prohibit commercial SaaS usage. Deploying a commercial product on Vercel Hobby violates terms of service. This project is specifically configured for **Cloudflare Pages**.
+
+---
+
+## 4. Local Testing & Verification Instructions
+
+### Available Quality Assurance Commands
+
+Run the automated checks locally:
+
 ```bash
-# Clone or navigate to the workspace
-cd d:\Millionaire
+# 1. Typecheck (Verifies TypeScript validity without emitting files)
+npx tsc --noEmit
 
-# Install dependencies (already completed)
-npm install
+# 2. Linting (Verifies ESLint 9 code quality on src/)
+npm run lint
 
-# Start the local development server
-npm run dev
+# 3. Production Build Test (Generates optimized static prerendered output)
+npm run build
 ```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### 2. Connect Supabase (Free Tier)
-1. Create a free account at [supabase.com](https://supabase.com).
-2. Create a new project (e.g. `safefood-global`).
-3. Navigate to **SQL Editor** in Supabase and paste the contents of:
-   `supabase/migrations/001_initial_schema.sql`
-4. Copy your project URL and Anon Public Key from **Project Settings > API**.
-5. Create `.env.local` in this project:
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-   ```
-*(Note: The platform includes built-in offline mock data fallbacks, allowing the entire app to run immediately even before database keys are added).*
+### Actual Verification Results
+- **TypeScript**: `npx tsc --noEmit` exited with code `0` (Zero type errors).
+- **ESLint**: `npm run lint` exited with code `0` (Zero errors, zero warnings).
+- **Production Build**: `npm run build` compiled all 11 routes statically with code `0`.
 
 ---
 
-## 📂 Project Structure
+## 5. Deployment Guide
 
-```
-d:\Millionaire\
-├── src\
-│   ├── app\
-│   │   ├── layout.tsx             # Root layout with safety disclaimers & navbar
-│   │   ├── globals.css            # Tailwind CSS styling
-│   │   ├── page.tsx               # Homepage highlighting the 3 core pillars
-│   │   ├── explore\page.tsx       # Food contamination intelligence library
-│   │   ├── alerts\page.tsx        # Official verified recalls & public notices
-│   │   ├── laboratories\page.tsx  # Certified testing labs & quotation forms
-│   │   ├── business\page.tsx      # B2B SaaS hygiene, temperature, and batch suite
-│   │   ├── pricing\page.tsx       # Sustainable monetization tiers ($0 to $10/mo)
-│   │   ├── report-concern\page.tsx# Citizen concern submission form with safe safeguards
-│   │   └── admin\page.tsx         # Admin dashboard for publishing alerts & moderating submissions
-│   ├── components\
-│   │   ├── Navbar.tsx             # Responsive header navigation
-│   │   ├── Footer.tsx             # Footer with regulatory links & legal disclaimers
-│   │   ├── DisclaimerBanner.tsx   # Mandatory scientific detection disclaimer
-│   │   └── SafetyBadge.tsx        # Visual badges (Verified Official vs Under Review)
-│   ├── lib\
-│   │   ├── supabase.ts            # Null-safe Supabase client
-│   │   └── data\
-│   │       ├── mockFoods.ts       # Scientific food hazards & safe thresholds
-│   │       ├── mockAlerts.ts      # UNBS / WHO sourced food notices
-│   │       └── mockLabs.ts        # Accredited laboratory profiles & test scopes
-│   └── types\
-│       └── index.ts               # Core TypeScript definitions
-├── supabase\
-│   └── migrations\
-│       └── 001_initial_schema.sql # Multi-tenant PostgreSQL schema with RLS policies
-├── package.json
-├── tailwind.config.ts
-└── tsconfig.json
-```
-
----
-
-## 🛡️ Critical Safety & Legal Safeguards
-
-- **No False Detection Claims**: The platform prominently states that visual photographs or software algorithms cannot scientifically detect invisible bacteria (Salmonella, Listeria) or toxic chemicals (Aflatoxins, Formalin).
-- **Distinction of Verification Levels**:
-  - `Verified Official Alert`: Sourced from certified standards bodies (e.g. UNBS, FDA, WHO).
-  - `Laboratory Confirmed`: Supported by ISO 17025 accredited laboratory test results.
-  - `Under Review`: Community submissions awaiting chain-of-custody laboratory validation to protect businesses from false or defamatory allegations.
-
----
-
-## 💰 Monetization Roadmap ($0 Capital to Cashflow)
-
-1. **Phase 1 (Completed)**: Scaffolding, architecture, core 3 pillars, working demo tools, schema, and legal disclaimers.
-2. **Phase 2 (Outreach & Pilot)**: Walk into 10–20 local restaurants and bakeries with a tablet showing the live digital hygiene checklist and cold room temperature log. Offer a 30-day free trial.
-3. **Phase 3 (Subscription Launch)**: Convert active businesses to **$10/month (~UGX 38,000/month)**. 25 paying clients generates **$250/month (~UGX 950,000/month)** pure recurring revenue on zero-cost infrastructure.
-4. **Phase 4 (Lab Referrals)**: Formalize quotation agreements with accredited testing laboratories.
+See [`DEPLOYMENT.md`](file:///d:/Millionaire/DEPLOYMENT.md) for full step-by-step instructions on deploying to Cloudflare Pages and running database migrations in Supabase.

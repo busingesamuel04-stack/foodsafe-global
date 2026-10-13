@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { Shield, ExternalLink, Heart } from 'lucide-react';
+import { Shield, ExternalLink } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
@@ -14,7 +14,7 @@ export const Footer: React.FC = () => {
                 <Shield className="w-5 h-5 text-white" />
               </div>
               <span className="text-lg font-bold text-white tracking-tight">
-                FoodSafe<span className="text-brand-500">Global</span>
+                Food Safety<span className="text-brand-500"> Platform</span>
               </span>
             </div>
             <p className="text-gray-400 text-xs sm:text-sm leading-relaxed max-w-sm">

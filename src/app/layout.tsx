@@ -5,8 +5,8 @@ import { Footer } from '@/components/Footer';
 import { DisclaimerBanner } from '@/components/DisclaimerBanner';
 
 export const metadata: Metadata = {
-  title: 'FoodSafe Global | Food Contamination Detection & Safety Management',
-  description: 'Global food safety platform: search food contaminants, track official verified recalls, locate ISO 17025 accredited laboratories, and manage restaurant hygiene compliance logs.',
+  title: 'Food Safety Platform | Contamination Intelligence & Safety Management',
+  description: 'Worldwide platform combining food contamination education, verified safety alerts, accredited laboratory testing directory, and food business compliance software.',
 };
 
 export default function RootLayout({

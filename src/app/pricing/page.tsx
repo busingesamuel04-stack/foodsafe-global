@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Check, ShieldCheck, Building2, FlaskConical, Sparkles, ArrowRight } from 'lucide-react';
+import { Check, ShieldCheck, Building2, FlaskConical, ArrowRight } from 'lucide-react';
 
 export default function PricingPage() {
   return (
