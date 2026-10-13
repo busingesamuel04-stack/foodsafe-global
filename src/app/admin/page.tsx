@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
 import { 
   ShieldCheck, 
   AlertTriangle, 
@@ -12,7 +14,9 @@ import {
   Eye, 
   Trash2, 
   ExternalLink,
-  BookOpen
+  BookOpen,
+  ShieldAlert,
+  Lock
 } from 'lucide-react';
 import { mockAlerts } from '@/lib/data/mockAlerts';
 import { mockFoods } from '@/lib/data/mockFoods';
@@ -20,6 +24,7 @@ import { mockLabs } from '@/lib/data/mockLabs';
 import { FoodAlert, FoodProfile, LaboratoryProfile } from '@/types';
 
 export default function AdminPage() {
+  const { user, profile, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'alerts' | 'foods' | 'labs' | 'submissions'>('alerts');
 
   // Local admin states for live management
@@ -105,6 +110,74 @@ export default function AdminPage() {
   const handleDismissSubmission = (id: string) => {
     setPendingSubmissions(pendingSubmissions.filter(s => s.id !== id));
   };
+
+  // AUTHORIZATION GUARDS
+  if (authLoading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="w-10 h-10 border-4 border-gray-200 border-t-red-600 rounded-full animate-spin mx-auto" />
+          <p className="text-xs text-gray-500 font-medium">Verifying administrator authorization...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Guard 1: Must be authenticated
+  if (!user) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="max-w-md w-full text-center space-y-4 bg-white p-8 rounded-3xl border border-red-200 shadow-sm">
+          <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-7 h-7" />
+          </div>
+          <h2 className="text-2xl font-black text-gray-900">Administrator Access Restricted</h2>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            The FoodSafe Global administration console requires verified administrator authorization. Public and unauthenticated access is strictly disabled.
+          </p>
+          <div className="pt-2 flex flex-col gap-2">
+            <Link
+              href="/login?redirect=/admin"
+              className="w-full py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white font-semibold text-xs"
+            >
+              Sign In with Administrator Credentials
+            </Link>
+            <Link
+              href="/"
+              className="w-full py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold text-xs"
+            >
+              Return to Homepage
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Guard 2: Must possess 'admin' role in profile
+  if (profile?.role !== 'admin') {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="max-w-md w-full text-center space-y-4 bg-white p-8 rounded-3xl border border-amber-200 shadow-sm">
+          <div className="w-14 h-14 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7" />
+          </div>
+          <h2 className="text-2xl font-black text-gray-900">Insufficient Privileges</h2>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            You are signed in as <strong>{user.email}</strong> with role <span className="font-bold uppercase text-amber-800">{profile?.role || 'consumer'}</span>. Only platform administrators can view or moderate safety notices and incoming incident reports.
+          </p>
+          <div className="pt-2">
+            <Link
+              href="/business"
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs"
+            >
+              Go to Business Dashboard
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">

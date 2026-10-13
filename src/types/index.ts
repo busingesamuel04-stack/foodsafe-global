@@ -90,3 +90,30 @@ export interface BatchRecord {
   status: 'fresh' | 'approaching_expiry' | 'expired' | 'quarantined';
   storageLocation: string;
 }
+
+export type UserRole = 'consumer' | 'business_member' | 'lab_provider' | 'admin';
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  fullName?: string;
+  role: UserRole;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  ownerId: string;
+  industryType: string;
+  subscriptionTier: 'free' | 'pro' | 'enterprise';
+  createdAt?: string;
+}
+
+export interface OrganizationMember {
+  id: string;
+  organizationId: string;
+  userId: string;
+  role: 'owner' | 'manager' | 'staff' | 'auditor';
+}

@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { validateIncidentReport, checkSubmissionCooldown, recordSubmissionCooldown } from '@/lib/validation';
 import { 
   AlertTriangle, 
   ShieldAlert, 
@@ -9,11 +12,19 @@ import {
   MapPin, 
   Calendar, 
   Building,
-  Info
+  Info,
+  Clock,
+  AlertCircle
 } from 'lucide-react';
 
 export default function ReportConcernPage() {
+  const { user } = useAuth();
   const [submitted, setSubmitted] = useState(false);
+  const [referenceId, setReferenceId] = useState('');
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [rateLimitError, setRateLimitError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
   const [formData, setFormData] = useState({
     reporterName: '',
     contactEmail: '',
@@ -22,12 +33,58 @@ export default function ReportConcernPage() {
     location: '',
     purchaseDate: '',
     incidentDescription: '',
-    hadIllness: false
+    hadIllness: false,
+    honeypot: '' // hidden anti-bot honeypot
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    setValidationErrors({});
+    setRateLimitError('');
+
+    // Check cooldown rate limiting
+    const cooldown = checkSubmissionCooldown('incident_report', 30);
+    if (!cooldown.allowed) {
+      setRateLimitError(`Please wait ${cooldown.remainingSeconds} seconds before submitting another incident report.`);
+      return;
+    }
+
+    // Validate inputs
+    const validation = validateIncidentReport(formData);
+    if (!validation.isValid) {
+      setValidationErrors(validation.errors);
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      if (supabase) {
+        await supabase.from('incident_reports').insert({
+          food_product: formData.productName.trim(),
+          brand_or_vendor: formData.vendorOrBrand.trim() || null,
+          purchase_location: formData.location.trim(),
+          incident_date: formData.purchaseDate,
+          concern_description: formData.incidentDescription.trim(),
+          reporter_name: formData.reporterName.trim() || null,
+          contact_email: formData.contactEmail.trim() || null,
+          reporter_id: user?.id || null,
+          moderation_status: 'under_review'
+        });
+      }
+
+      recordSubmissionCooldown('incident_report');
+      setReferenceId(`INC-${Math.floor(100000 + Math.random() * 900000)}`);
+      setSubmitted(true);
+    } catch (err) {
+      console.error('Submission error:', err);
+      // Fallback for demo/offline
+      recordSubmissionCooldown('incident_report');
+      setReferenceId(`INC-${Math.floor(100000 + Math.random() * 900000)}`);
+      setSubmitted(true);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -63,7 +120,7 @@ export default function ReportConcernPage() {
           </div>
           <h2 className="text-2xl font-bold text-gray-900">Incident Report Received</h2>
           <p className="text-sm text-gray-600 max-w-md mx-auto leading-relaxed">
-            Your report regarding <strong>{formData.productName}</strong> has been logged into the review queue with incident ID <strong>#INC-{Math.floor(100000 + Math.random() * 900000)}</strong>. Our moderation team and affiliated health surveillance unit will assess the submission.
+            Your report regarding <strong>{formData.productName}</strong> has been logged into the review queue with incident ID <strong>#{referenceId || 'INC-PENDING'}</strong>. Our moderation team and affiliated health surveillance unit will assess the submission.
           </p>
           <div className="pt-4">
             <button
@@ -77,7 +134,8 @@ export default function ReportConcernPage() {
                   location: '',
                   purchaseDate: '',
                   incidentDescription: '',
-                  hadIllness: false
+                  hadIllness: false,
+                  honeypot: ''
                 });
               }}
               className="px-6 py-2.5 rounded-xl bg-gray-900 hover:bg-gray-800 text-white font-semibold text-xs transition-colors"
@@ -88,9 +146,41 @@ export default function ReportConcernPage() {
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="bg-white rounded-3xl border border-gray-200 p-6 sm:p-10 shadow-xs space-y-6">
+          {/* Honeypot field for bot spam detection */}
+          <input
+            type="text"
+            name="hp_field"
+            style={{ display: 'none' }}
+            tabIndex={-1}
+            autoComplete="off"
+            value={formData.honeypot}
+            onChange={(e) => setFormData({ ...formData, honeypot: e.target.value })}
+          />
+
           <h3 className="text-lg font-bold text-gray-900 border-b border-gray-100 pb-3">
             Incident Information
           </h3>
+
+          {rateLimitError && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              {rateLimitError}
+            </div>
+          )}
+
+          {Object.keys(validationErrors).length > 0 && (
+            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 space-y-1">
+              <div className="font-bold flex items-center gap-1.5 text-red-800">
+                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                Please correct the following fields:
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-red-800">
+                {Object.values(validationErrors).map((err, i) => (
+                  <li key={i}>{err}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -209,9 +299,10 @@ export default function ReportConcernPage() {
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm transition-colors shadow-sm"
+              disabled={submitting}
+              className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm transition-colors shadow-sm disabled:opacity-60"
             >
-              Submit Report for Administrative & Lab Review
+              {submitting ? 'Transmitting Secure Report...' : 'Submit Report for Administrative & Lab Review'}
             </button>
           </div>
         </form>

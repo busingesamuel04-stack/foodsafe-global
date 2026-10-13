@@ -2,10 +2,12 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Shield, Search, AlertCircle, Building2, FlaskConical, Menu, X, PlusCircle } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Shield, Search, AlertCircle, Building2, FlaskConical, Menu, X, PlusCircle, LogIn, LogOut, ShieldAlert } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user, profile, signOut } = useAuth();
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-100 shadow-xs">
@@ -62,6 +64,15 @@ export const Navbar: React.FC = () => {
             >
               Pricing
             </Link>
+            {profile?.role === 'admin' && (
+              <Link
+                href="/admin"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-red-700 bg-red-50 hover:bg-red-100 transition-colors font-bold text-xs"
+              >
+                <ShieldAlert className="w-4 h-4" />
+                Admin
+              </Link>
+            )}
           </nav>
 
           {/* CTA Buttons */}
@@ -73,12 +84,41 @@ export const Navbar: React.FC = () => {
               <PlusCircle className="w-3.5 h-3.5 text-red-500" />
               Report Concern
             </Link>
-            <Link
-              href="/business"
-              className="inline-flex items-center justify-center text-xs font-semibold px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white shadow-sm shadow-brand-500/20 transition-all hover:shadow"
-            >
-              Business Login
-            </Link>
+
+            {user ? (
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <span className="block text-xs font-bold text-gray-900 truncate max-w-[130px]">
+                    {profile?.fullName || user.email?.split('@')[0]}
+                  </span>
+                  <span className="block text-[10px] text-gray-500 capitalize font-medium">
+                    {profile?.role?.replace('_', ' ') || 'Consumer'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => signOut()}
+                  className="p-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-gray-100 transition-colors"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/login"
+                  className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg text-gray-700 hover:text-brand-700 hover:bg-brand-50 transition-colors"
+                >
+                  <LogIn className="w-3.5 h-3.5" /> Sign In
+                </Link>
+                <Link
+                  href="/register"
+                  className="inline-flex items-center justify-center text-xs font-semibold px-3.5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white shadow-sm shadow-brand-500/20 transition-all hover:shadow"
+                >
+                  Register
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* Mobile menu trigger */}
@@ -136,6 +176,16 @@ export const Navbar: React.FC = () => {
           >
             Pricing & Plans
           </Link>
+          {profile?.role === 'admin' && (
+            <Link
+              href="/admin"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-bold text-red-700 bg-red-50 hover:bg-red-100"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              Admin Portal
+            </Link>
+          )}
           <div className="pt-3 border-t border-gray-100 flex flex-col gap-2">
             <Link
               href="/report-concern"
@@ -145,13 +195,34 @@ export const Navbar: React.FC = () => {
               <PlusCircle className="w-4 h-4" />
               Report a Concern
             </Link>
-            <Link
-              href="/business"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-brand-600"
-            >
-              Business Workspace
-            </Link>
+            {user ? (
+              <button
+                onClick={() => {
+                  signOut();
+                  setMobileMenuOpen(false);
+                }}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200"
+              >
+                <LogOut className="w-4 h-4" /> Sign Out ({user.email})
+              </button>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <Link
+                  href="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-700 bg-gray-100"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/register"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-brand-600"
+                >
+                  Register
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       )}

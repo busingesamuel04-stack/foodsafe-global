@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { validateTestEnquiry, checkSubmissionCooldown, recordSubmissionCooldown } from '@/lib/validation';
 import { mockLabs } from '@/lib/data/mockLabs';
 import { LaboratoryProfile } from '@/types';
 import { 
@@ -15,13 +18,18 @@ import {
   Clock, 
   Check, 
   ShieldCheck,
-  X
+  X,
+  AlertCircle
 } from 'lucide-react';
 
 export default function LaboratoriesPage() {
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [selectedLabForEnquiry, setSelectedLabForEnquiry] = useState<LaboratoryProfile | null>(null);
   const [submittedEnquiry, setSubmittedEnquiry] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [rateLimitError, setRateLimitError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   
   // Enquiry form state
   const [formData, setFormData] = useState({
@@ -30,7 +38,8 @@ export default function LaboratoriesPage() {
     phone: '',
     foodType: 'Grain / Maize Flour',
     concern: '',
-    urgency: 'standard'
+    urgency: 'standard',
+    honeypot: ''
   });
 
   const filteredLabs = mockLabs.filter((lab) =>
@@ -40,21 +49,64 @@ export default function LaboratoriesPage() {
     lab.supportedFoodTypes.some(t => t.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmittedEnquiry(true);
-    setTimeout(() => {
-      setSubmittedEnquiry(false);
-      setSelectedLabForEnquiry(null);
-      setFormData({
-        name: '',
-        email: '',
-        phone: '',
-        foodType: 'Grain / Maize Flour',
-        concern: '',
-        urgency: 'standard'
-      });
-    }, 2800);
+    setValidationErrors({});
+    setRateLimitError('');
+
+    // Check cooldown rate limiting
+    const cooldown = checkSubmissionCooldown('test_enquiry', 30);
+    if (!cooldown.allowed) {
+      setRateLimitError(`Please wait ${cooldown.remainingSeconds} seconds before sending another quotation request.`);
+      return;
+    }
+
+    // Validate inputs
+    const validation = validateTestEnquiry(formData);
+    if (!validation.isValid) {
+      setValidationErrors(validation.errors);
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      if (supabase && selectedLabForEnquiry) {
+        // If lab is in DB
+        await supabase.from('test_enquiries').insert({
+          laboratory_id: selectedLabForEnquiry.id.startsWith('lab-') ? null : selectedLabForEnquiry.id,
+          sender_name: formData.name.trim(),
+          sender_email: formData.email.trim(),
+          sender_phone: formData.phone?.trim() || null,
+          food_sample_type: formData.foodType.trim(),
+          suspected_concern: formData.concern.trim(),
+          sender_id: user?.id || null,
+          status: 'pending'
+        });
+      }
+
+      recordSubmissionCooldown('test_enquiry');
+      setSubmittedEnquiry(true);
+      setTimeout(() => {
+        setSubmittedEnquiry(false);
+        setSelectedLabForEnquiry(null);
+        setFormData({
+          name: '',
+          email: '',
+          phone: '',
+          foodType: 'Grain / Maize Flour',
+          concern: '',
+          urgency: 'standard',
+          honeypot: ''
+        });
+      }, 2800);
+    } catch (err) {
+      console.error('Enquiry error:', err);
+      recordSubmissionCooldown('test_enquiry');
+      setSubmittedEnquiry(true);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -212,6 +264,38 @@ export default function LaboratoriesPage() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
+                  {/* Honeypot field for bot spam detection */}
+                  <input
+                    type="text"
+                    name="hp_lab_field"
+                    style={{ display: 'none' }}
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={formData.honeypot}
+                    onChange={(e) => setFormData({ ...formData, honeypot: e.target.value })}
+                  />
+
+                  {rateLimitError && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                      {rateLimitError}
+                    </div>
+                  )}
+
+                  {Object.keys(validationErrors).length > 0 && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 space-y-1">
+                      <div className="font-bold flex items-center gap-1.5 text-red-800">
+                        <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                        Please correct the following:
+                      </div>
+                      <ul className="list-disc pl-5 space-y-0.5 text-red-800">
+                        {Object.values(validationErrors).map((err, i) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">Your Full Name</label>
@@ -283,9 +367,10 @@ export default function LaboratoriesPage() {
                   <div className="pt-2">
                     <button
                       type="submit"
-                      className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-colors shadow-sm"
+                      disabled={submitting}
+                      className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-colors shadow-sm disabled:opacity-60"
                     >
-                      Transmit Quotation Enquiry
+                      {submitting ? 'Transmitting Request...' : 'Transmit Quotation Enquiry'}
                     </button>
                   </div>
                 </form>
