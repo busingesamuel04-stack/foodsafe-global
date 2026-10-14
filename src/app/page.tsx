@@ -66,6 +66,9 @@ import {
   evaluateDietaryWarnings,
   compareProductsForDuel,
   parseNutritionAndIngredientsFromText,
+  extractNutritionFieldsFromText,
+  buildProductFromOcrFields,
+  OcrExtractedNutriments,
   getCachedProducts,
   recognizeLabelImage
 } from '@/lib/services/nutriScanService';
@@ -122,6 +125,7 @@ export default function NutriScanApp() {
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrStatusText, setOcrStatusText] = useState('');
+  const [ocrDraft, setOcrDraft] = useState<OcrExtractedNutriments | null>(null);
 
   // 9. Structured Meal Daily Journal State
   const [dailyLogs, setDailyLogs] = useState<DailyLogItem[]>([]);
@@ -504,8 +508,13 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
       });
 
       setLabelInputText(extractedText);
+      const extractedFields = extractNutritionFieldsFromText(
+        extractedText, 
+        labelInputName.trim() || 'Scanned Package Label'
+      );
+      setOcrDraft(extractedFields);
       setIsOcrProcessing(false);
-      triggerToast('OCR Complete! Review extracted ingredients & nutrition.');
+      triggerToast('OCR Complete! Review extracted numbers before confirming.');
     } catch (err) {
       console.error('OCR Error:', err);
       setIsOcrProcessing(false);
@@ -513,27 +522,30 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
     }
   };
 
-  // Handle Snap-a-Label Decode
+  // Handle Snap-a-Label Confirmation & Build Dossier
   const handleAnalyzeLabel = () => {
-    if (!labelInputText.trim()) {
+    if (!ocrDraft && !labelInputText.trim()) {
       triggerToast('Please snap a photo or paste nutrition/ingredients text.');
       return;
     }
 
-    const parsed = parseNutritionAndIngredientsFromText(
-      labelInputText,
-      labelInputName.trim() || 'Scanned Package Label'
-    );
+    const finalProduct = ocrDraft
+      ? buildProductFromOcrFields(ocrDraft)
+      : parseNutritionAndIngredientsFromText(
+          labelInputText,
+          labelInputName.trim() || 'Scanned Package Label'
+        );
 
-    setCurrentProduct(parsed);
+    setCurrentProduct(finalProduct);
     setIsLabelReaderOpen(false);
     setLabelInputName('');
     setLabelInputText('');
+    setOcrDraft(null);
     refreshHistory();
 
     if (soundEnabled) playScannerBeep();
     triggerHapticFeedback();
-    triggerToast(`Decoded: ${parsed.name}!`);
+    triggerToast(`Decoded: ${finalProduct.name}! (OCR Verified)`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -1054,6 +1066,31 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 uppercase tracking-wider">
                       {currentProduct.brand || 'Packaged Grocery'}
                     </span>
+                    {currentProduct.source === 'open_food_facts' && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200">
+                        🌐 Open Food Facts Wiki
+                      </span>
+                    )}
+                    {currentProduct.source === 'ocr_extracted' && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+                        📸 In-Browser OCR (Verified Draft)
+                      </span>
+                    )}
+                    {currentProduct.source === 'reference_database' && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        🧪 Verified Benchmark
+                      </span>
+                    )}
+                    {currentProduct.sourceUrl && (
+                      <a
+                        href={currentProduct.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-blue-600 hover:text-blue-800 underline font-medium"
+                      >
+                        View database record ↗
+                      </a>
+                    )}
                     {currentProduct.category && (
                       <span className="text-[11px] text-slate-500">
                         • {currentProduct.category}
@@ -1065,6 +1102,7 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                   </h1>
                   <p className="text-xs text-slate-500">
                     Standard Measure: {currentProduct.servingSize || '100g reference measure'}
+                    {currentProduct.servingSizeGrams ? ` (~${currentProduct.servingSizeGrams}g)` : ''}
                   </p>
                 </div>
               </div>
@@ -1145,7 +1183,7 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                       <div className="flex items-center gap-2">
                         <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
                         <h4 className="text-sm font-black">
-                          Dietary Warnings Detected ({dietaryWarnings.length})
+                          Dietary / Allergen Warnings Detected ({dietaryWarnings.length})
                         </h4>
                       </div>
                       <div className="space-y-1.5 pl-7">
@@ -1156,18 +1194,26 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                           </div>
                         ))}
                       </div>
+                      <p className="text-[10px] text-rose-600 pl-7 italic">
+                        Caution: If you have life-threatening or anaphylactic food allergies, do not consume without inspecting the physical manufacturer label.
+                      </p>
                     </div>
                   ) : (
-                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="font-bold">
-                          100% Compliant with your active dietary profile ({activeDietaryPrefs.join(', ')})
-                        </span>
+                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                      <div className="flex items-start gap-2">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold text-slate-900">
+                            No declared allergens detected for: {activeDietaryPrefs.join(', ')}
+                          </span>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Based on available database ingredient text. Manufacturing lines and cross-contact formulations vary; always inspect packaging.
+                          </p>
+                        </div>
                       </div>
                       <button
                         onClick={() => setIsDietaryModalOpen(true)}
-                        className="text-xs text-emerald-700 font-semibold underline hover:text-emerald-900"
+                        className="text-xs text-emerald-700 font-semibold underline hover:text-emerald-900 shrink-0 self-end sm:self-center"
                       >
                         Edit filters
                       </button>
@@ -1240,18 +1286,26 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                 {/* Spike Metrics Summary Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                   <div className="p-3 bg-white rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Estimated Glycemic Index</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Simple Sugar Surge Level</span>
                     <p className="text-sm font-extrabold text-slate-900">
                       {currentProduct.metabolicPrediction.glycemicIndexEstimate}
                     </p>
                   </div>
                   <div className="p-3 bg-white rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Energy Crash Risk</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Energy Fluctuation Risk</span>
                     <p className="text-sm font-extrabold text-slate-900">
                       {currentProduct.metabolicPrediction.estimatedCrashRisk}
                     </p>
                   </div>
                 </div>
+
+                {/* Complex Carbohydrate Starch Notice */}
+                {currentProduct.metabolicPrediction.starchNotice && (
+                  <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                    <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <p>{currentProduct.metabolicPrediction.starchNotice}</p>
+                  </div>
+                )}
               </div>
 
               {/* ── 3. VISUAL SUGAR CUBES CALCULATOR ── */}
@@ -1266,7 +1320,7 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                         Visual Sugar Cubes Breakdown
                       </h3>
                       <p className="text-[11px] text-slate-600">
-                        1 sugar cube ≈ 4 grams of pure sucrose. WHO daily target: 25g max (6 cubes).
+                        1 sugar cube ≈ 4g pure sugar. WHO adult maximum: 25g/day (~6 cubes).
                       </p>
                     </div>
                   </div>
@@ -1276,7 +1330,9 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                       {currentProduct.sugarCubesCount} Cubes
                     </span>
                     <span className="text-xs text-amber-700 block font-medium">
-                      ({(currentProduct.nutriments.sugarsPer100g || 0)}g sugar per 100g)
+                      {currentProduct.servingSizeGrams 
+                        ? `(Calculated for ~${currentProduct.servingSizeGrams}g portion)`
+                        : `(${(currentProduct.nutriments.sugarsPer100g ?? 0)}g sugar per 100g)`}
                     </span>
                   </div>
                 </div>
@@ -1329,18 +1385,22 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                       Calories
                     </span>
                     <p className="text-base font-black text-slate-900 mt-0.5">
-                      {currentProduct.nutriments.caloriesPer100g ?? '--'} kcal
+                      {currentProduct.nutriments.caloriesPer100g != null 
+                        ? `${currentProduct.nutriments.caloriesPer100g} kcal`
+                        : <span className="text-xs text-slate-400 font-normal italic">Not reported</span>}
                     </p>
                   </div>
 
                   <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                     <span className="text-[10px] font-bold text-slate-400 uppercase">
-                      Refined Sugars
+                      Total Sugars
                     </span>
                     <p className={`text-base font-black mt-0.5 ${
                       (currentProduct.nutriments.sugarsPer100g || 0) > 15 ? 'text-rose-600' : 'text-slate-900'
                     }`}>
-                      {currentProduct.nutriments.sugarsPer100g ?? 0}g
+                      {currentProduct.nutriments.sugarsPer100g != null 
+                        ? `${currentProduct.nutriments.sugarsPer100g}g` 
+                        : <span className="text-xs text-slate-400 font-normal italic">Not reported</span>}
                     </p>
                   </div>
 
@@ -1349,7 +1409,9 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                       Saturated Fat
                     </span>
                     <p className="text-base font-black text-slate-900 mt-0.5">
-                      {currentProduct.nutriments.saturatedFatPer100g ?? 0}g
+                      {currentProduct.nutriments.saturatedFatPer100g != null 
+                        ? `${currentProduct.nutriments.saturatedFatPer100g}g` 
+                        : <span className="text-xs text-slate-400 font-normal italic">Not reported</span>}
                     </p>
                   </div>
 
@@ -1358,7 +1420,9 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                       Sodium / Salt
                     </span>
                     <p className="text-base font-black text-slate-900 mt-0.5">
-                      {currentProduct.nutriments.saltPer100g ?? 0}g
+                      {currentProduct.nutriments.saltPer100g != null 
+                        ? `${currentProduct.nutriments.saltPer100g}g` 
+                        : <span className="text-xs text-slate-400 font-normal italic">Not reported</span>}
                     </p>
                   </div>
                 </div>
@@ -1475,7 +1539,7 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
             {/* Dossier Footer Action Bar */}
             <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
               <span className="text-xs text-slate-500 flex items-center gap-1">
-                Data verified via Open Food Facts & International WHO Guidelines
+                Data sourced from Open Food Facts & packaging labels • WHO dietary guideline context
               </span>
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button
@@ -1736,50 +1800,154 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
                 </div>
               )}
 
-              {/* Product Name */}
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">
-                  Product Name (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={labelInputName}
-                  onChange={e => setLabelInputName(e.target.value)}
-                  placeholder="e.g. Greek Artisan Yogurt or Sourdough Loaf"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
+              {/* If OCR extracted values are ready, show interactive confirmation form */}
+              {ocrDraft ? (
+                <div className="space-y-3 p-4 bg-amber-50/80 border border-amber-200 rounded-2xl">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-bold text-amber-950">
+                        Review Extracted Packaging Values
+                      </p>
+                      <p className="text-[11px] text-amber-800">
+                        OCR on curved packaging or multi-column tables may misread digits. Adjust any numbers below to match your package before building the dossier:
+                      </p>
+                    </div>
+                  </div>
 
-              {/* Extracted Label Text Area */}
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">
-                  Extracted Nutrition & Ingredients Text
-                </label>
-                <textarea
-                  rows={4}
-                  value={labelInputText}
-                  onChange={e => setLabelInputText(e.target.value)}
-                  placeholder="Extracted label characters will appear here automatically from your photo, or you can paste text..."
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-                />
-              </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-700">Product Name</label>
+                    <input
+                      type="text"
+                      value={ocrDraft.productName}
+                      onChange={e => setOcrDraft({ ...ocrDraft, productName: e.target.value })}
+                      className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600 block">Calories (kcal)</label>
+                      <input
+                        type="number"
+                        value={ocrDraft.calories}
+                        onChange={e => setOcrDraft({ ...ocrDraft, calories: parseInt(e.target.value) || 0 })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600 block">Total Sugars (g)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={ocrDraft.sugars}
+                        onChange={e => setOcrDraft({ ...ocrDraft, sugars: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600 block">Total Fat (g)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={ocrDraft.fat}
+                        onChange={e => setOcrDraft({ ...ocrDraft, fat: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600 block">Saturated Fat (g)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={ocrDraft.saturatedFat}
+                        onChange={e => setOcrDraft({ ...ocrDraft, saturatedFat: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600 block">Protein (g)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={ocrDraft.protein}
+                        onChange={e => setOcrDraft({ ...ocrDraft, protein: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600 block">Salt (g)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={ocrDraft.salt}
+                        onChange={e => setOcrDraft({ ...ocrDraft, salt: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 block">Raw Ingredients & OCR Text</label>
+                    <textarea
+                      rows={3}
+                      value={ocrDraft.rawText}
+                      onChange={e => setOcrDraft({ ...ocrDraft, rawText: e.target.value })}
+                      className="w-full p-2 rounded-lg bg-white border border-slate-200 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Product Name */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      Product Name (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={labelInputName}
+                      onChange={e => setLabelInputName(e.target.value)}
+                      placeholder="e.g. Greek Artisan Yogurt or Sourdough Loaf"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  {/* Extracted Label Text Area */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      Nutrition & Ingredients Text
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={labelInputText}
+                      onChange={e => setLabelInputText(e.target.value)}
+                      placeholder="Extracted label characters will appear here automatically from your photo, or you can paste label text..."
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setIsLabelReaderOpen(false)}
+                onClick={() => {
+                  setIsLabelReaderOpen(false);
+                  setOcrDraft(null);
+                }}
                 className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={isOcrProcessing || !labelInputText.trim()}
+                disabled={isOcrProcessing || (!ocrDraft && !labelInputText.trim())}
                 onClick={handleAnalyzeLabel}
                 className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition disabled:opacity-50"
               >
-                Analyze & Build Dossier
+                {ocrDraft ? 'Confirm & Build Dossier' : 'Analyze & Build Dossier'}
               </button>
             </div>
           </div>
@@ -2155,13 +2323,19 @@ Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
       )}
 
       {/* ── FOOTER ── */}
-      <footer className="max-w-5xl mx-auto px-4 sm:px-6 pt-12 text-center text-xs text-slate-400 space-y-2">
-        <p>
-          NutriScan Global • Independent International Food Intelligence & Metabolic Analysis.
+      <footer className="max-w-5xl mx-auto px-4 sm:px-6 pt-12 pb-8 text-center text-xs text-slate-400 space-y-3">
+        <p className="font-semibold text-slate-500">
+          NutriScan Global • Independent International Food Intelligence & Nutritional Guidance
         </p>
-        <p className="text-[11px] text-slate-400">
-          Powered by Open Food Facts, World Health Organization (WHO) nutrient profiles, and community crowdsourced data.
+        <p className="text-[11px] text-slate-400 leading-relaxed max-w-2xl mx-auto">
+          Product data is powered by <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener noreferrer" className="underline hover:text-emerald-600 transition">Open Food Facts</a>, licensed under the <a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener noreferrer" className="underline hover:text-emerald-600 transition">Open Database License (ODbL)</a>, and user-verified label extracts. World Health Organization (WHO) nutrient benchmarks are applied for dietary thresholds.
         </p>
+        <div className="pt-2 border-t border-slate-200/60 max-w-xl mx-auto text-[10px] text-slate-400 leading-normal">
+          <p className="font-medium text-slate-500 mb-0.5">Medical & Allergen Notice</p>
+          <p>
+            NutriScan Global provides algorithmic estimates for educational and shopping guidance only. It is not medical or clinical advice. Carbohydrate surge indicators do not replace clinical Glycemic Index testing. Always read physical packaging labels for severe or life-threatening food allergies.
+          </p>
+        </div>
       </footer>
     </div>
   );

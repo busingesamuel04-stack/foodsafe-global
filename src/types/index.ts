@@ -43,8 +43,9 @@ export interface HealthImpact {
 
 export interface MetabolicSpikePrediction {
   spikeLevel: 'low' | 'moderate' | 'high' | 'severe';
-  glycemicIndexEstimate: 'Low (<55)' | 'Medium (55-69)' | 'High (70+)';
-  estimatedCrashRisk: 'Very Low' | 'Moderate' | 'High (Rapid Crash in 60-90m)';
+  glycemicIndexEstimate: string;
+  estimatedCrashRisk: string;
+  starchNotice?: string;
   summary: string;
 }
 
@@ -83,6 +84,7 @@ export interface ScannedProduct {
   nutriscoreGrade?: 'a' | 'b' | 'c' | 'd' | 'e';
   novaGroup?: 1 | 2 | 3 | 4;
   servingSize?: string;
+  servingSizeGrams?: number;
   additives: ProductAdditiveInfo[];
   allergens: string[];
   healthImpacts: HealthImpact[];
@@ -90,8 +92,8 @@ export interface ScannedProduct {
   metabolicPrediction: MetabolicSpikePrediction;
   personalVerdicts: Record<HealthGoal, PersonalizedVerdict>;
   alternatives: ProductAlternative[];
-  source: 'open_food_facts' | 'crowdsourced' | 'reference_database';
-  matchedRecall?: FoodRecallWarning;
+  source: 'open_food_facts' | 'ocr_extracted' | 'crowdsourced' | 'reference_database';
+  sourceUrl?: string;
   dietaryWarnings?: DietaryWarning[];
 }
 

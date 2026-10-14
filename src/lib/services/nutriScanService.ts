@@ -193,8 +193,8 @@ export const SAMPLE_PRODUCTS: ScannedProduct[] = [
     allergens: [],
     metabolicPrediction: {
       spikeLevel: 'severe',
-      glycemicIndexEstimate: 'High (70+)',
-      estimatedCrashRisk: 'High (Rapid Crash in 60-90m)',
+      glycemicIndexEstimate: 'Rapid Free-Sugar Surge (>20g/100g)',
+      estimatedCrashRisk: 'Elevated Post-Sugar Dip',
       summary: 'Absorbs within 10-15 minutes due to zero fiber and zero lipids. Triggers an acute insulin surge followed by an energy slump and hunger rebound.'
     },
     personalVerdicts: {
@@ -225,8 +225,8 @@ export const SAMPLE_PRODUCTS: ScannedProduct[] = [
       energy_focus: {
         goal: 'energy_focus',
         status: 'not_recommended',
-        headline: 'Guaranteed Afternoon Crash',
-        coachingAdvice: 'Gives a quick 20-minute caffeine/sugar boost followed by a sharp reactive dip in alertness.'
+        headline: 'Sugar Spike Followed by Energy Dip',
+        coachingAdvice: 'Gives a quick caffeine/sugar boost followed by a sharp reactive dip in alertness.'
       }
     },
     healthImpacts: [
@@ -307,9 +307,10 @@ export const SAMPLE_PRODUCTS: ScannedProduct[] = [
     allergens: ['Wheat (Gluten)', 'Soya'],
     metabolicPrediction: {
       spikeLevel: 'high',
-      glycemicIndexEstimate: 'High (70+)',
-      estimatedCrashRisk: 'Moderate',
-      summary: 'High sugar combined with refined palm fats slows acute gastric emptying slightly, but drives high insulin requirement due to fast-digesting starch.'
+      glycemicIndexEstimate: 'Moderate-High Sugar Surge (10-20g/100g)',
+      estimatedCrashRisk: 'Moderate Dip',
+      starchNotice: 'Complex Carbohydrate Notice: While refined simple sugars are high (38%), refined wheat starch also breaks down rapidly into blood glucose.',
+      summary: 'High sugar combined with refined palm fats slows acute gastric emptying slightly, but drives high insulin demand due to fast-digesting starch.'
     },
     personalVerdicts: {
       blood_sugar: {
@@ -411,8 +412,8 @@ export const SAMPLE_PRODUCTS: ScannedProduct[] = [
     allergens: ['Tree Nuts (Hazelnuts)', 'Milk', 'Soya'],
     metabolicPrediction: {
       spikeLevel: 'high',
-      glycemicIndexEstimate: 'Medium (55-69)',
-      estimatedCrashRisk: 'Moderate',
+      glycemicIndexEstimate: 'Moderate-High Sugar Surge (10-20g/100g)',
+      estimatedCrashRisk: 'Moderate Dip',
       summary: 'Heavy lipid load (30.9% fat) blunts the speed of the glucose curve, but total carbohydrate load remains intense (56.3% sugar).'
     },
     personalVerdicts: {
@@ -485,43 +486,86 @@ export const SAMPLE_PRODUCTS: ScannedProduct[] = [
 // 4. METABOLIC INTELLIGENCE ENGINE
 
 /**
- * Predicts glycemic metabolic spike intensity from nutrient data
+ * Safely parses serving sizes with unit awareness (grams, ml, fl oz).
+ * Avoids truncating multi-word strings like "1 can (330ml)" or "2 cookies (44g)".
  */
-export function calculateMetabolicSpike(sugars100g: number, fiber100g: number, protein100g: number): MetabolicSpikePrediction {
+export function parseServingGrams(servingSizeStr?: string): number | null {
+  if (!servingSizeStr) return null;
+  const clean = servingSizeStr.trim();
+  
+  // 1. Grams: e.g. "44 g", "44g", "100 g", "(44g)"
+  const gMatch = clean.match(/(\d+(?:\.\d+)?)\s*(?:g|grams?)\b/i);
+  if (gMatch) return parseFloat(gMatch[1]);
+  
+  // 2. Millilitres (approx 1.0 g/ml for liquid beverages)
+  const mlMatch = clean.match(/(\d+(?:\.\d+)?)\s*(?:ml|millilitres?|milliliters?)\b/i);
+  if (mlMatch) return parseFloat(mlMatch[1]);
+  
+  // 3. Fluid Ounces: ~29.57 ml / g
+  const ozMatch = clean.match(/(\d+(?:\.\d+)?)\s*(?:fl\s*oz|oz)\b/i);
+  if (ozMatch) return Math.round(parseFloat(ozMatch[1]) * 29.57);
+  
+  // 4. Pure numeric string
+  const bareMatch = clean.match(/^(\d+(?:\.\d+)?)$/);
+  if (bareMatch) return parseFloat(bareMatch[1]);
+
+  return null;
+}
+
+/**
+ * Predicts glycemic metabolic spike intensity from nutrient data and category context
+ */
+export function calculateMetabolicSpike(
+  sugars100g: number, 
+  fiber100g: number, 
+  protein100g: number,
+  categoryOrName: string = ''
+): MetabolicSpikePrediction {
+  const lower = categoryOrName.toLowerCase();
+  const isStarchHeavy = /bread|cereal|grain|flour|oat|rice|potato|pasta|cracker|biscuit|cookie|corn|chip|snack/i.test(lower);
+  let starchNotice: string | undefined = undefined;
+  if (isStarchHeavy) {
+    starchNotice = 'Complex Carbohydrate Notice: While refined simple sugars may appear low or moderate, foods rich in refined wheat, corn, or potato starch digest into blood glucose rapidly. This indicator models simple free sugars, not total starch glycemic load.';
+  }
+
   const netQuickCarbs = Math.max(0, sugars100g - (fiber100g * 0.7));
 
   if (netQuickCarbs > 20) {
     return {
       spikeLevel: 'severe',
-      glycemicIndexEstimate: 'High (70+)',
-      estimatedCrashRisk: 'High (Rapid Crash in 60-90m)',
-      summary: 'High density of free simple sugars without sufficient dietary fiber buffer. Fast intestinal absorption drives steep glycemic elevation and rapid reactive insulin release.'
+      glycemicIndexEstimate: 'Rapid Free-Sugar Surge (>20g/100g)',
+      estimatedCrashRisk: 'Elevated Post-Sugar Dip',
+      starchNotice,
+      summary: 'High density of free simple sugars without sufficient dietary fiber buffer. Rapid intestinal absorption drives steep glycemic elevation and reactive insulin release.'
     };
   }
 
   if (netQuickCarbs > 10) {
     return {
       spikeLevel: 'high',
-      glycemicIndexEstimate: 'Medium (55-69)',
-      estimatedCrashRisk: 'Moderate',
-      summary: 'Moderate-high glycemic impact. Causes an elevated glucose curve; combining with protein or dietary fiber is strongly recommended.'
+      glycemicIndexEstimate: 'Moderate-High Sugar Surge (10-20g/100g)',
+      estimatedCrashRisk: 'Moderate Dip',
+      starchNotice,
+      summary: 'Moderate-high glycemic impact from simple sugars. Combining with protein, healthy fats, or dietary fiber slows absorption.'
     };
   }
 
   if (sugars100g <= 5 || protein100g >= 8) {
     return {
       spikeLevel: 'low',
-      glycemicIndexEstimate: 'Low (<55)',
-      estimatedCrashRisk: 'Very Low',
-      summary: 'Minimal blood sugar disturbance. Slower digestive breakdown maintains balanced, long-lasting energy release.'
+      glycemicIndexEstimate: 'Minimal Simple Sugar Impact (<=5g/100g)',
+      estimatedCrashRisk: 'Low',
+      starchNotice,
+      summary: 'Low simple free sugar profile. Slower digestive breakdown supports stable energy release.'
     };
   }
 
   return {
     spikeLevel: 'moderate',
-    glycemicIndexEstimate: 'Low (<55)',
-    estimatedCrashRisk: 'Moderate',
-    summary: 'Balanced metabolic profile with steady glucose absorption rate.'
+    glycemicIndexEstimate: 'Gradual Sugar Absorption (5-10g/100g)',
+    estimatedCrashRisk: 'Low-Moderate',
+    starchNotice,
+    summary: 'Balanced metabolic profile with steady glucose absorption rate from simple sugars.'
   };
 }
 
@@ -650,14 +694,27 @@ export function normalizeProductData(data: Record<string, unknown>, barcode: str
     }
   }
 
-  // Calculate sugar cubes (approx 4g of sugar per standard sugar cube)
-  const servingGram = parseFloat(String(p.serving_size || '100')) || 100;
-  const servingFactor = servingGram / 100;
-  const sugarPerServing = sugar100g * (servingFactor > 0 ? servingFactor : 1);
+  // Calculate sugar cubes respecting unit-aware serving size
+  const parsedServingGrams = parseServingGrams(p.serving_size ? String(p.serving_size) : undefined);
+  const rawSugarServing = nutriments['sugars_serving'] != null ? Number(nutriments['sugars_serving']) : null;
+  
+  let sugarPerServing: number;
+  if (rawSugarServing != null && !isNaN(rawSugarServing) && rawSugarServing >= 0) {
+    sugarPerServing = rawSugarServing;
+  } else if (parsedServingGrams != null && parsedServingGrams > 0) {
+    sugarPerServing = (sugar100g * parsedServingGrams) / 100;
+  } else {
+    sugarPerServing = sugar100g; // 100g standard reference portion
+  }
   const sugarCubes = Math.max(0, Math.round(sugarPerServing / 4));
 
   // Metabolic prediction & Personalized verdicts
-  const metabolicPrediction = calculateMetabolicSpike(sugar100g, fiber, protein);
+  const metabolicPrediction = calculateMetabolicSpike(
+    sugar100g, 
+    fiber, 
+    protein, 
+    String(p.categories || p.product_name || '')
+  );
   const novaGroup = (p.nova_group as 1 | 2 | 3 | 4) || undefined;
   const personalVerdicts = generatePersonalVerdicts(
     String(p.product_name || 'Food Item'),
@@ -710,6 +767,7 @@ export function normalizeProductData(data: Record<string, unknown>, barcode: str
   }
 
   const alternatives = generateCategoryAlternatives(String(p.categories || p.product_name || ''));
+  const isOcr = barcode.startsWith('label-');
 
   return {
     barcode,
@@ -732,6 +790,7 @@ export function normalizeProductData(data: Record<string, unknown>, barcode: str
     nutriscoreGrade: (p.nutriscore_grade as ScannedProduct['nutriscoreGrade']) || undefined,
     novaGroup,
     servingSize: p.serving_size ? String(p.serving_size) : undefined,
+    servingSizeGrams: parsedServingGrams || undefined,
     additives,
     allergens: Array.isArray(p.allergens_tags) ? p.allergens_tags.map(a => String(a).replace(/^en:/i, '')) : [],
     healthImpacts,
@@ -739,7 +798,8 @@ export function normalizeProductData(data: Record<string, unknown>, barcode: str
     metabolicPrediction,
     personalVerdicts,
     alternatives,
-    source: 'open_food_facts'
+    source: isOcr ? 'ocr_extracted' : 'open_food_facts',
+    sourceUrl: isOcr ? undefined : `https://world.openfoodfacts.org/product/${encodeURIComponent(barcode)}`
   };
 }
 
@@ -812,7 +872,7 @@ export async function lookupProductByBarcode(barcode: string): Promise<ScannedPr
     const res = await fetch(
       `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(cleanBarcode)}.json`,
       {
-        headers: { 'User-Agent': 'NutriScan - Health & Metabolic Tracker - 1.0' },
+        headers: { 'User-Agent': 'NutriScanGlobal - WebApp - 1.0 (https://foodsafe-global.pages.dev)' },
         signal: controller.signal
       }
     );
@@ -861,7 +921,7 @@ export async function searchProducts(query: string): Promise<ScannedProduct[]> {
     const res = await fetch(
       `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(trimmed)}&search_simple=1&action=process&json=1&page_size=8`,
       {
-        headers: { 'User-Agent': 'NutriScan - Health & Metabolic Tracker - 1.0' },
+        headers: { 'User-Agent': 'NutriScanGlobal - WebApp - 1.0 (https://foodsafe-global.pages.dev)' },
         signal: controller.signal
       }
     );
@@ -1315,10 +1375,22 @@ export function compareProductsForDuel(
 }
 
 // 11. SNAP-A-LABEL & SMART TEXT / OCR NUTRITION PARSER
-export function parseNutritionAndIngredientsFromText(
+export interface OcrExtractedNutriments {
+  productName: string;
+  calories: number;
+  sugars: number;
+  fat: number;
+  saturatedFat: number;
+  protein: number;
+  fiber: number;
+  salt: number;
+  rawText: string;
+}
+
+export function extractNutritionFieldsFromText(
   rawText: string,
   productName: string = 'Scanned Food Label'
-): ScannedProduct {
+): OcrExtractedNutriments {
   const clean = rawText.toLowerCase();
 
   // Extract sugars: e.g. "sugars: 12g", "sugar 14.5 g", "10g sugars"
@@ -1364,7 +1436,21 @@ export function parseNutritionAndIngredientsFromText(
     salt = clean.includes('mg') ? val / 1000 : val;
   }
 
-  // Detect additives from text
+  return {
+    productName,
+    calories,
+    sugars,
+    fat,
+    saturatedFat,
+    protein,
+    fiber,
+    salt,
+    rawText
+  };
+}
+
+export function buildProductFromOcrFields(fields: OcrExtractedNutriments): ScannedProduct {
+  const clean = fields.rawText.toLowerCase();
   const detectedAdditives: ProductAdditiveInfo[] = [];
   for (const [codeKey, info] of Object.entries(ADDITIVES_CATALOG)) {
     if (clean.includes(codeKey) || clean.includes(info.name.toLowerCase())) {
@@ -1375,27 +1461,36 @@ export function parseNutritionAndIngredientsFromText(
   const barcode = `label-${Date.now()}`;
   const mockRawData = {
     product: {
-      product_name: productName,
-      brands: 'Label Reader Import',
+      product_name: fields.productName || 'Scanned Package Label',
+      brands: 'Photo Label Import',
       categories: 'Smart OCR Packaged Food',
-      ingredients_text: rawText,
+      ingredients_text: fields.rawText,
       nutriments: {
-        'energy-kcal_100g': calories,
-        sugars_100g: sugars,
-        fat_100g: fat,
-        'saturated-fat_100g': saturatedFat,
-        proteins_100g: protein,
-        fiber_100g: fiber,
-        salt_100g: salt
+        'energy-kcal_100g': fields.calories || undefined,
+        sugars_100g: fields.sugars || undefined,
+        fat_100g: fields.fat || undefined,
+        'saturated-fat_100g': fields.saturatedFat || undefined,
+        proteins_100g: fields.protein || undefined,
+        fiber_100g: fields.fiber || undefined,
+        salt_100g: fields.salt || undefined
       },
       additives_tags: detectedAdditives.map(a => `en:${a.code.toLowerCase()}`),
-      nova_group: detectedAdditives.length > 0 || sugars > 15 ? 4 : 2
+      nova_group: undefined // Do not fabricate NOVA group; leave undefined if unverified
     }
   };
 
   const product = normalizeProductData(mockRawData, barcode);
+  product.source = 'ocr_extracted';
   saveProductToOfflineCache(product);
   return product;
+}
+
+export function parseNutritionAndIngredientsFromText(
+  rawText: string,
+  productName: string = 'Scanned Food Label'
+): ScannedProduct {
+  const fields = extractNutritionFieldsFromText(rawText, productName);
+  return buildProductFromOcrFields(fields);
 }
 
 // 12. POPULAR CATEGORIES & EXPLORER API
