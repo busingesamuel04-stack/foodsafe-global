@@ -11,7 +11,7 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: 'NutriScan | Food Intelligence & Metabolic Health Tracker',
   description: 'Scan any barcode or search any food product worldwide. Decode hidden sugars, industrial additives, and metabolic insulin spikes tailored to your personal health goal.',
-  manifest: '/manifest.webmanifest',
+  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
