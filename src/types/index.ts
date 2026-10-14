@@ -92,6 +92,33 @@ export interface ScannedProduct {
   alternatives: ProductAlternative[];
   source: 'open_food_facts' | 'crowdsourced' | 'reference_database';
   matchedRecall?: FoodRecallWarning;
+  dietaryWarnings?: DietaryWarning[];
+}
+
+export type DietaryPreference = 
+  | 'vegan'
+  | 'vegetarian'
+  | 'halal'
+  | 'kosher'
+  | 'gluten_free'
+  | 'dairy_free'
+  | 'nut_free';
+
+export interface DietaryWarning {
+  preference: DietaryPreference;
+  type: 'violation' | 'caution';
+  title: string;
+  reason: string;
+}
+
+export interface DuelComparison {
+  winner: 'productA' | 'productB' | 'tie';
+  winnerHeadline: string;
+  verdictReason: string;
+  sugarDiffGrams: number;
+  sugarCubesDiff: number;
+  caloriesDiff: number;
+  additivesDiff: number;
 }
 
 export interface DailyLogItem {

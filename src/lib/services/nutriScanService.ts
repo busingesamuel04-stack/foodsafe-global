@@ -7,7 +7,10 @@ import {
   PersonalizedVerdict, 
   DailyLogItem, 
   DailyMetabolicSummary,
-  CrowdsourcedProductSubmission
+  CrowdsourcedProductSubmission,
+  DietaryPreference,
+  DietaryWarning,
+  DuelComparison
 } from '@/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
@@ -787,7 +790,7 @@ function generateCategoryAlternatives(category: string) {
   ];
 }
 
-// 5. EXTERNAL LOOKUP & SEARCH API
+// 5. EXTERNAL LOOKUP & SEARCH API (With Offline Supermarket Cache)
 export async function lookupProductByBarcode(barcode: string): Promise<ScannedProduct | null> {
   const cleanBarcode = barcode.trim().replace(/\s+/g, '');
 
@@ -795,7 +798,11 @@ export async function lookupProductByBarcode(barcode: string): Promise<ScannedPr
   const demoMatch = SAMPLE_PRODUCTS.find(p => p.barcode === cleanBarcode);
   if (demoMatch) return demoMatch;
 
-  // 2. Query Open Food Facts API (Free public endpoint)
+  // 2. Check offline supermarket cache (previously scanned items work with 0 internet)
+  const cached = getCachedProducts().find(p => p.barcode === cleanBarcode);
+  if (cached) return cached;
+
+  // 3. Query Open Food Facts API (Free public endpoint)
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6500);
@@ -812,7 +819,9 @@ export async function lookupProductByBarcode(barcode: string): Promise<ScannedPr
     if (res.ok) {
       const data = await res.json();
       if (data.status === 1 && data.product) {
-        return normalizeProductData(data, cleanBarcode);
+        const normalized = normalizeProductData(data, cleanBarcode);
+        saveProductToOfflineCache(normalized);
+        return normalized;
       }
     }
   } catch (err) {
@@ -826,10 +835,21 @@ export async function searchProducts(query: string): Promise<ScannedProduct[]> {
   const trimmed = query.trim().toLowerCase();
   if (!trimmed) return [];
 
-  // Match demo samples
+  // Match demo samples + offline cache
+  const cachedMatches = getCachedProducts().filter(
+    p => p.name.toLowerCase().includes(trimmed) || (p.brand && p.brand.toLowerCase().includes(trimmed))
+  );
+
   const demoMatches = SAMPLE_PRODUCTS.filter(
     p => p.name.toLowerCase().includes(trimmed) || (p.brand && p.brand.toLowerCase().includes(trimmed))
   );
+
+  const localPool = [...demoMatches];
+  for (const c of cachedMatches) {
+    if (!localPool.some(p => p.barcode === c.barcode)) {
+      localPool.push(c);
+    }
+  }
 
   // Search Open Food Facts
   try {
@@ -851,19 +871,21 @@ export async function searchProducts(query: string): Promise<ScannedProduct[]> {
         const remoteResults: ScannedProduct[] = [];
         for (const item of data.products) {
           if (item.code && item.product_name) {
-            if (!demoMatches.some(d => d.barcode === item.code)) {
-              remoteResults.push(normalizeProductData({ product: item }, item.code));
+            if (!localPool.some(d => d.barcode === item.code)) {
+              const norm = normalizeProductData({ product: item }, item.code);
+              remoteResults.push(norm);
+              saveProductToOfflineCache(norm);
             }
           }
         }
-        return [...demoMatches, ...remoteResults];
+        return [...localPool, ...remoteResults];
       }
     }
   } catch (err) {
     console.warn('Open Food Facts search notice:', err);
   }
 
-  return demoMatches;
+  return localPool;
 }
 
 // 6. DAILY INTAKE JOURNAL & METABOLIC LOG HELPERS (LocalStorage)
@@ -990,3 +1012,370 @@ export async function submitCrowdsourcedProduct(
     };
   }
 }
+
+// 7. OFFLINE SUPERMARKET CACHE
+const CACHE_KEY = 'nutriscan_cached_products_v1';
+
+export function getCachedProducts(): ScannedProduct[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveProductToOfflineCache(product: ScannedProduct): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const existing = getCachedProducts().filter(p => p.barcode !== product.barcode);
+    const updated = [product, ...existing].slice(0, 40); // keep recent 40 items offline
+    localStorage.setItem(CACHE_KEY, JSON.stringify(updated));
+  } catch {
+    // quota safe
+  }
+}
+
+// 8. SUPERMARKET AUDIO & HAPTIC FEEDBACK
+export function playScannerBeep(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1850, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(2600, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+  } catch {
+    // Audio gesture policy fallback
+  }
+}
+
+export function triggerHapticFeedback(): void {
+  if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+    try {
+      navigator.vibrate([35, 40, 35]);
+    } catch {
+      // not supported
+    }
+  }
+}
+
+// 9. GLOBAL DIETARY & ALLERGEN REPUTATION ENGINE
+export function evaluateDietaryWarnings(
+  product: ScannedProduct,
+  activePrefs: DietaryPreference[]
+): DietaryWarning[] {
+  if (!activePrefs || activePrefs.length === 0) return [];
+
+  const warnings: DietaryWarning[] = [];
+  const fullText = (
+    (product.ingredientsText || '') + ' ' + 
+    (product.ingredientsList ? product.ingredientsList.join(' ') : '') + ' ' +
+    product.name + ' ' + 
+    (product.category || '')
+  ).toLowerCase();
+
+  const additivesCodes = product.additives.map(a => a.code.toLowerCase());
+  const declaredAllergens = (product.allergens || []).map(a => a.toLowerCase());
+
+  // Check 1: Vegan
+  if (activePrefs.includes('vegan')) {
+    const nonVeganKeywords = [
+      'milk', 'dairy', 'whey', 'casein', 'cheese', 'butter', 'lactose', 'yogurt',
+      'egg', 'albumin', 'honey', 'gelatin', 'gelatine', 'collagen', 'lard', 'tallow',
+      'carmine', 'cochineal', 'shellac', 'bone phosphate'
+    ];
+    const nonVeganAdditives = ['e120', 'e904', 'e542', 'e441'];
+    
+    const hitKeyword = nonVeganKeywords.find(k => fullText.includes(k));
+    const hitAdditive = additivesCodes.find(c => nonVeganAdditives.includes(c));
+
+    if (hitKeyword || hitAdditive) {
+      warnings.push({
+        preference: 'vegan',
+        type: 'violation',
+        title: 'Not Vegan Compliant',
+        reason: hitAdditive 
+          ? `Contains animal-derived additive (${hitAdditive.toUpperCase()}).`
+          : `Contains animal/dairy-derived ingredient (${hitKeyword}).`
+      });
+    }
+  }
+
+  // Check 2: Vegetarian
+  if (activePrefs.includes('vegetarian')) {
+    const nonVegKeywords = ['gelatin', 'gelatine', 'collagen', 'lard', 'tallow', 'carmine', 'cochineal', 'rennet', 'beef', 'chicken', 'pork', 'fish'];
+    const nonVegAdditives = ['e120', 'e441', 'e542'];
+
+    const hit = nonVegKeywords.find(k => fullText.includes(k));
+    const hitAdd = additivesCodes.find(c => nonVegAdditives.includes(c));
+
+    if (hit || hitAdd) {
+      warnings.push({
+        preference: 'vegetarian',
+        type: 'violation',
+        title: 'Not Vegetarian',
+        reason: hitAdd 
+          ? `Contains animal-sourced additive (${hitAdd.toUpperCase()}).`
+          : `Contains animal tissue/gelatin byproduct (${hit}).`
+      });
+    }
+  }
+
+  // Check 3: Halal
+  if (activePrefs.includes('halal')) {
+    const nonHalalKeywords = ['pork', 'bacon', 'ham', 'lard', 'alcohol', 'ethanol', 'wine', 'beer', 'rum', 'carmine', 'cochineal'];
+    const nonHalalAdditives = ['e120'];
+
+    const hit = nonHalalKeywords.find(k => fullText.includes(k));
+    const hitAdd = additivesCodes.find(c => nonHalalAdditives.includes(c));
+
+    if (hit || hitAdd) {
+      warnings.push({
+        preference: 'halal',
+        type: 'violation',
+        title: 'Halal Compliance Concern',
+        reason: hitAdd 
+          ? `Contains cochineal insect dye (${hitAdd.toUpperCase()}).`
+          : `Contains restricted animal or alcohol element (${hit}).`
+      });
+    }
+  }
+
+  // Check 4: Kosher
+  if (activePrefs.includes('kosher')) {
+    const nonKosherKeywords = ['pork', 'shellfish', 'shrimp', 'crab', 'lobster', 'carmine', 'cochineal'];
+    const hit = nonKosherKeywords.find(k => fullText.includes(k));
+
+    if (hit) {
+      warnings.push({
+        preference: 'kosher',
+        type: 'violation',
+        title: 'Kosher Restriction Flag',
+        reason: `Contains non-kosher ingredient (${hit}).`
+      });
+    }
+  }
+
+  // Check 5: Gluten-Free
+  if (activePrefs.includes('gluten_free')) {
+    const glutenKeywords = ['wheat', 'barley', 'rye', 'malt', 'spelt', 'semolina', 'couscous', 'gluten'];
+    const hit = glutenKeywords.find(k => fullText.includes(k)) || declaredAllergens.some(a => a.includes('gluten') || a.includes('wheat'));
+
+    if (hit) {
+      warnings.push({
+        preference: 'gluten_free',
+        type: 'violation',
+        title: 'Contains Gluten / Wheat',
+        reason: 'Detected wheat, malt, or gluten derivatives in ingredients or allergen registry.'
+      });
+    }
+  }
+
+  // Check 6: Dairy-Free
+  if (activePrefs.includes('dairy_free')) {
+    const dairyKeywords = ['milk', 'dairy', 'whey', 'casein', 'cheese', 'butter', 'lactose', 'cream'];
+    const hit = dairyKeywords.find(k => fullText.includes(k)) || declaredAllergens.some(a => a.includes('milk') || a.includes('lactose'));
+
+    if (hit) {
+      warnings.push({
+        preference: 'dairy_free',
+        type: 'violation',
+        title: 'Contains Dairy / Lactose',
+        reason: 'Detected milk proteins, lactose, or whey solids.'
+      });
+    }
+  }
+
+  // Check 7: Nut-Free
+  if (activePrefs.includes('nut_free')) {
+    const nutKeywords = ['peanut', 'almond', 'hazelnut', 'walnut', 'cashew', 'pistachio', 'pecan', 'macadamia'];
+    const hit = nutKeywords.find(k => fullText.includes(k)) || declaredAllergens.some(a => a.includes('nut') || a.includes('peanut'));
+
+    if (hit) {
+      warnings.push({
+        preference: 'nut_free',
+        type: 'violation',
+        title: 'Nut Allergen Detected',
+        reason: 'Contains tree nuts or peanuts.'
+      });
+    }
+  }
+
+  return warnings;
+}
+
+// 10. NUTRIDUEL: SIDE-BY-SIDE METABOLIC COMPARISON
+export function compareProductsForDuel(
+  productA: ScannedProduct,
+  productB: ScannedProduct,
+  activeGoal: HealthGoal
+): DuelComparison {
+  const sugarA = productA.nutriments.sugarsPer100g || 0;
+  const sugarB = productB.nutriments.sugarsPer100g || 0;
+  const sugarDiff = Math.round((sugarA - sugarB) * 10) / 10;
+  const sugarCubesDiff = Math.round(productA.sugarCubesCount - productB.sugarCubesCount);
+
+  const calA = productA.nutriments.caloriesPer100g || 0;
+  const calB = productB.nutriments.caloriesPer100g || 0;
+  const calDiff = Math.round(calA - calB);
+
+  const addA = productA.additives.length;
+  const addB = productB.additives.length;
+  const addDiff = addA - addB;
+
+  let scoreA = 0;
+  let scoreB = 0;
+
+  switch (activeGoal) {
+    case 'blood_sugar':
+      if (sugarA < sugarB) scoreA += 3; else if (sugarB < sugarA) scoreB += 3;
+      if (productA.metabolicPrediction.spikeLevel === 'low') scoreA += 2;
+      if (productB.metabolicPrediction.spikeLevel === 'low') scoreB += 2;
+      break;
+    case 'weight_loss':
+      if (calA < calB) scoreA += 2; else if (calB < calA) scoreB += 2;
+      if (sugarA < sugarB) scoreA += 2; else if (sugarB < sugarA) scoreB += 2;
+      break;
+    case 'heart_health':
+      const saltA = productA.nutriments.saltPer100g || 0;
+      const saltB = productB.nutriments.saltPer100g || 0;
+      if (saltA < saltB) scoreA += 2; else if (saltB < saltA) scoreB += 2;
+      const fatA = productA.nutriments.saturatedFatPer100g || 0;
+      const fatB = productB.nutriments.saturatedFatPer100g || 0;
+      if (fatA < fatB) scoreA += 2; else if (fatB < fatA) scoreB += 2;
+      break;
+    case 'clean_eating':
+      if (addA < addB) scoreA += 3; else if (addB < addA) scoreB += 3;
+      if ((productA.novaGroup || 4) < (productB.novaGroup || 4)) scoreA += 2;
+      if ((productB.novaGroup || 4) < (productA.novaGroup || 4)) scoreB += 2;
+      break;
+    case 'energy_focus':
+      if (sugarA < sugarB) scoreA += 2; else if (sugarB < sugarA) scoreB += 2;
+      const fiberA = productA.nutriments.fiberPer100g || 0;
+      const fiberB = productB.nutriments.fiberPer100g || 0;
+      if (fiberA > fiberB) scoreA += 2; else if (fiberB > fiberA) scoreB += 2;
+      break;
+  }
+
+  let winner: 'productA' | 'productB' | 'tie' = 'tie';
+  let winnerHeadline = 'Even Matchup';
+  let verdictReason = 'Both products exhibit comparable health and metabolic markers.';
+
+  if (scoreA > scoreB) {
+    winner = 'productA';
+    winnerHeadline = `${productA.name.split(' ')[0]} Wins`;
+    verdictReason = `${productA.name} is the superior metabolic choice with lower glycemic volatility and cleaner formulation.`;
+  } else if (scoreB > scoreA) {
+    winner = 'productB';
+    winnerHeadline = `${productB.name.split(' ')[0]} Wins`;
+    verdictReason = `${productB.name} is superior for your ${activeGoal.replace('_', ' ')} goal, saving ${Math.abs(sugarDiff)}g of sugar.`;
+  }
+
+  return {
+    winner,
+    winnerHeadline,
+    verdictReason,
+    sugarDiffGrams: Math.abs(sugarDiff),
+    sugarCubesDiff: Math.abs(sugarCubesDiff),
+    caloriesDiff: Math.abs(calDiff),
+    additivesDiff: Math.abs(addDiff)
+  };
+}
+
+// 11. SNAP-A-LABEL & SMART TEXT / OCR NUTRITION PARSER
+export function parseNutritionAndIngredientsFromText(
+  rawText: string,
+  productName: string = 'Scanned Food Label'
+): ScannedProduct {
+  const clean = rawText.toLowerCase();
+
+  // Extract sugars: e.g. "sugars: 12g", "sugar 14.5 g", "10g sugars"
+  let sugars = 0;
+  const sugarMatch = clean.match(/(?:sugars?|total sugars?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*g?/i) 
+    || clean.match(/(\d+(?:\.\d+)?)\s*g?\s*(?:of\s*)?sugars?/i);
+  if (sugarMatch) {
+    sugars = parseFloat(sugarMatch[1]);
+  }
+
+  // Extract calories: e.g. "calories: 250", "140 kcal", "energy: 1500kj / 350kcal"
+  let calories = 0;
+  const calMatch = clean.match(/(?:calories|energy|energy value)\s*[:\-]?\s*(\d+)/i)
+    || clean.match(/(\d+)\s*k?cal/i);
+  if (calMatch) {
+    calories = parseInt(calMatch[1], 10);
+  }
+
+  // Extract fats & saturated fat
+  let fat = 0;
+  const fatMatch = clean.match(/(?:total fat|fat)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*g?/i);
+  if (fatMatch) fat = parseFloat(fatMatch[1]);
+
+  let saturatedFat = 0;
+  const satMatch = clean.match(/(?:saturated fat|saturates)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*g?/i);
+  if (satMatch) saturatedFat = parseFloat(satMatch[1]);
+
+  // Extract protein
+  let protein = 0;
+  const protMatch = clean.match(/(?:protein|proteins)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*g?/i);
+  if (protMatch) protein = parseFloat(protMatch[1]);
+
+  // Extract fiber
+  let fiber = 0;
+  const fibMatch = clean.match(/(?:fiber|dietary fiber|fibres)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*g?/i);
+  if (fibMatch) fiber = parseFloat(fibMatch[1]);
+
+  // Extract salt/sodium
+  let salt = 0;
+  const saltMatch = clean.match(/(?:salt|sodium)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:g|mg)?/i);
+  if (saltMatch) {
+    const val = parseFloat(saltMatch[1]);
+    salt = clean.includes('mg') ? val / 1000 : val;
+  }
+
+  // Detect additives from text
+  const detectedAdditives: ProductAdditiveInfo[] = [];
+  for (const [codeKey, info] of Object.entries(ADDITIVES_CATALOG)) {
+    if (clean.includes(codeKey) || clean.includes(info.name.toLowerCase())) {
+      detectedAdditives.push(info);
+    }
+  }
+
+  const barcode = `label-${Date.now()}`;
+  const mockRawData = {
+    product: {
+      product_name: productName,
+      brands: 'Label Reader Import',
+      categories: 'Smart OCR Packaged Food',
+      ingredients_text: rawText,
+      nutriments: {
+        'energy-kcal_100g': calories,
+        sugars_100g: sugars,
+        fat_100g: fat,
+        'saturated-fat_100g': saturatedFat,
+        proteins_100g: protein,
+        fiber_100g: fiber,
+        salt_100g: salt
+      },
+      additives_tags: detectedAdditives.map(a => `en:${a.code.toLowerCase()}`),
+      nova_group: detectedAdditives.length > 0 || sugars > 15 ? 4 : 2
+    }
+  };
+
+  const product = normalizeProductData(mockRawData, barcode);
+  saveProductToOfflineCache(product);
+  return product;
+}
+

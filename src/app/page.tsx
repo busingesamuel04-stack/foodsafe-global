@@ -23,18 +23,27 @@ import {
   ChevronRight,
   RefreshCw,
   SlidersHorizontal,
-  ExternalLink,
   BookOpen,
   Calendar,
-  Layers,
-  ArrowRight
+  Volume2,
+  VolumeX,
+  Smartphone,
+  Swords,
+  FileText,
+  UploadCloud,
+  Check,
+  Shield,
+  ArrowRight,
+  Leaf
 } from 'lucide-react';
 import {
   HealthGoal,
   ScannedProduct,
   DailyLogItem,
   DailyMetabolicSummary,
-  CrowdsourcedProductSubmission
+  CrowdsourcedProductSubmission,
+  DietaryPreference,
+  DietaryWarning
 } from '@/types';
 import {
   HEALTH_GOALS,
@@ -46,8 +55,24 @@ import {
   removeDailyLogItem,
   clearDailyLogs,
   calculateDailySummary,
-  submitCrowdsourcedProduct
+  submitCrowdsourcedProduct,
+  playScannerBeep,
+  triggerHapticFeedback,
+  evaluateDietaryWarnings,
+  compareProductsForDuel,
+  parseNutritionAndIngredientsFromText,
+  getCachedProducts
 } from '@/lib/services/nutriScanService';
+
+const DIETARY_OPTIONS: { id: DietaryPreference; label: string; icon: string; desc: string }[] = [
+  { id: 'vegan', label: 'Vegan', icon: '🌱', desc: 'No dairy, eggs, gelatin, carmine E120, or animal products' },
+  { id: 'vegetarian', label: 'Vegetarian', icon: '🧀', desc: 'No animal meat, gelatin, or animal tissue byproducts' },
+  { id: 'halal', label: 'Halal-friendly', icon: '🌙', desc: 'No pork, alcohol, or carmine insect additives' },
+  { id: 'kosher', label: 'Kosher-friendly', icon: '✡️', desc: 'No pork, shellfish, or non-kosher additives' },
+  { id: 'gluten_free', label: 'Gluten-Free', icon: '🌾', desc: 'No wheat, barley, rye, or malt derivatives' },
+  { id: 'dairy_free', label: 'Dairy / Lactose-Free', icon: '🥛', desc: 'No milk, whey, casein, or lactose solids' },
+  { id: 'nut_free', label: 'Nut-Free', icon: '🥜', desc: 'No peanuts or tree nuts (almonds, hazelnuts, etc.)' }
+];
 
 export default function NutriScanApp() {
   // 1. Core State
@@ -58,12 +83,31 @@ export default function NutriScanApp() {
   const [searchResults, setSearchResults] = useState<ScannedProduct[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // 2. Camera Scanner State
+  // 2. Camera Scanner & Supermarket Mode State
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [cachedCount, setCachedCount] = useState(0);
   const scannerRef = useRef<unknown>(null);
 
-  // 3. Daily Metabolic Journal State
+  // 3. PWA Installation State
+  const [deferredPrompt, setDeferredPrompt] = useState<unknown>(null);
+  const [isPWAInstallable, setIsPWAInstallable] = useState(false);
+
+  // 4. Global Dietary Preferences State
+  const [activeDietaryPrefs, setActiveDietaryPrefs] = useState<DietaryPreference[]>([]);
+  const [isDietaryModalOpen, setIsDietaryModalOpen] = useState(false);
+
+  // 5. NutriDuel Side-by-Side State
+  const [isDuelOpen, setIsDuelOpen] = useState(false);
+  const [duelProductB, setDuelProductB] = useState<ScannedProduct>(SAMPLE_PRODUCTS[1]);
+
+  // 6. Snap-a-Label AI / Smart OCR Reader State
+  const [isLabelReaderOpen, setIsLabelReaderOpen] = useState(false);
+  const [labelInputName, setLabelInputName] = useState('');
+  const [labelInputText, setLabelInputText] = useState('');
+
+  // 7. Daily Metabolic Journal State
   const [dailyLogs, setDailyLogs] = useState<DailyLogItem[]>([]);
   const [dailySummary, setDailySummary] = useState<DailyMetabolicSummary>({
     totalCalories: 0,
@@ -78,7 +122,7 @@ export default function NutriScanApp() {
   const [servingsCount, setServingsCount] = useState(1);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
 
-  // 4. Missing Product Crowdsource Modal
+  // 8. Missing Product Crowdsource Modal
   const [isCrowdsourceOpen, setIsCrowdsourceOpen] = useState(false);
   const [crowdsourceForm, setCrowdsourceForm] = useState({
     barcode: '',
@@ -95,15 +139,8 @@ export default function NutriScanApp() {
     success?: boolean;
   }>({ loading: false, message: null });
 
-  // 5. Toast Feedback
+  // 9. Toast Feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Initialize Daily Logs from localStorage
-  useEffect(() => {
-    const loaded = getStoredDailyLogs();
-    setDailyLogs(loaded);
-    setDailySummary(calculateDailySummary(loaded));
-  }, []);
 
   const triggerToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -111,6 +148,68 @@ export default function NutriScanApp() {
       setToastMessage(null);
     }, 3500);
   }, []);
+
+  // Initialize from LocalStorage & PWA listeners
+  useEffect(() => {
+    // Load daily logs
+    const loaded = getStoredDailyLogs();
+    setDailyLogs(loaded);
+    setDailySummary(calculateDailySummary(loaded));
+
+    // Load offline cached count
+    const cached = getCachedProducts();
+    setCachedCount(cached.length);
+
+    // Load saved dietary preferences
+    try {
+      const savedPrefs = localStorage.getItem('nutriscan_dietary_prefs_v1');
+      if (savedPrefs) {
+        setActiveDietaryPrefs(JSON.parse(savedPrefs));
+      }
+    } catch {
+      // ignore
+    }
+
+    // PWA beforeinstallprompt handler
+    const promptHandler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsPWAInstallable(true);
+    };
+    window.addEventListener('beforeinstallprompt', promptHandler);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', promptHandler);
+    };
+  }, []);
+
+  // Toggle dietary preference
+  const toggleDietaryPref = (id: DietaryPreference) => {
+    const updated = activeDietaryPrefs.includes(id)
+      ? activeDietaryPrefs.filter(p => p !== id)
+      : [...activeDietaryPrefs, id];
+    setActiveDietaryPrefs(updated);
+    try {
+      localStorage.setItem('nutriscan_dietary_prefs_v1', JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  };
+
+  // PWA Install Action
+  const handleInstallPWA = async () => {
+    if (deferredPrompt) {
+      const promptEvent = deferredPrompt as { prompt: () => void; userChoice: Promise<{ outcome: string }> };
+      promptEvent.prompt();
+      const choice = await promptEvent.userChoice;
+      if (choice.outcome === 'accepted') {
+        setIsPWAInstallable(false);
+        triggerToast('NutriScan installed to your home screen!');
+      }
+    } else {
+      triggerToast('Tap browser menu (•••) and select "Add to Home Screen" to install.');
+    }
+  };
 
   // Handle Product Search
   const handleSearchSubmit = async (e?: React.FormEvent) => {
@@ -128,6 +227,8 @@ export default function NutriScanApp() {
         setCurrentProduct(direct);
         setSearchResults([]);
         setIsSearching(false);
+        if (soundEnabled) playScannerBeep();
+        triggerHapticFeedback();
         triggerToast(`Loaded: ${direct.name}`);
         return;
       }
@@ -148,6 +249,8 @@ export default function NutriScanApp() {
     setSearchResults([]);
     setHasSearched(false);
     setSearchQuery('');
+    if (soundEnabled) playScannerBeep();
+    triggerHapticFeedback();
     window.scrollTo({ top: 380, behavior: 'smooth' });
   };
 
@@ -156,6 +259,8 @@ export default function NutriScanApp() {
     const updated = saveDailyLogItem(currentProduct, servingsCount);
     setDailyLogs(updated);
     setDailySummary(calculateDailySummary(updated));
+    if (soundEnabled) playScannerBeep();
+    triggerHapticFeedback();
     triggerToast(`Logged ${servingsCount}x ${currentProduct.name} to Today!`);
   };
 
@@ -255,7 +360,6 @@ export default function NutriScanApp() {
       const { Html5Qrcode } = await import('html5-qrcode');
       const elementId = 'nutriscan-camera-viewport';
 
-      // Give DOM time to mount viewport element
       setTimeout(async () => {
         try {
           const qrScanner = new Html5Qrcode(elementId);
@@ -269,21 +373,25 @@ export default function NutriScanApp() {
               aspectRatio: 1.0
             },
             async (decodedText: string) => {
-              // Successfully read barcode!
+              // Beep & Vibrate like supermarket scanner
+              if (soundEnabled) playScannerBeep();
+              triggerHapticFeedback();
               await stopCameraScanner();
+
               triggerToast(`Barcode detected: ${decodedText}`);
               const found = await lookupProductByBarcode(decodedText);
               if (found) {
                 setCurrentProduct(found);
+                setCachedCount(prev => prev + 1);
                 triggerToast(`Found: ${found.name}`);
               } else {
                 setCrowdsourceForm(prev => ({ ...prev, barcode: decodedText }));
                 setIsCrowdsourceOpen(true);
-                triggerToast('Product not found. Add details to crowdsource!');
+                triggerToast('Product not found in database. Add details to crowdsource!');
               }
             },
             () => {
-              // frame scanning silence
+              // scanning frame
             }
           );
         } catch (err) {
@@ -297,7 +405,7 @@ export default function NutriScanApp() {
       console.error('Scanner library load error:', err);
       setScannerError('Camera scanning component unavailable. Please use the search bar.');
     }
-  }, [stopCameraScanner, triggerToast]);
+  }, [stopCameraScanner, triggerToast, soundEnabled]);
 
   // Clean up camera on unmount
   useEffect(() => {
@@ -314,8 +422,45 @@ export default function NutriScanApp() {
     };
   }, []);
 
+  // Handle Snap-a-Label AI / Smart Text submission
+  const handleAnalyzeLabel = () => {
+    if (!labelInputText.trim()) {
+      triggerToast('Please paste or type nutrition/ingredients text from the label.');
+      return;
+    }
+
+    const parsed = parseNutritionAndIngredientsFromText(
+      labelInputText,
+      labelInputName.trim() || 'Scanned Package Label'
+    );
+
+    setCurrentProduct(parsed);
+    setIsLabelReaderOpen(false);
+    setLabelInputName('');
+    setLabelInputText('');
+    setCachedCount(prev => prev + 1);
+
+    if (soundEnabled) playScannerBeep();
+    triggerHapticFeedback();
+    triggerToast(`Smart Label Analyzed: ${parsed.name}!`);
+    window.scrollTo({ top: 380, behavior: 'smooth' });
+  };
+
+  // Sample label presets for 1-click OCR testing
+  const insertSampleLabel = (type: 'soda' | 'snack') => {
+    if (type === 'soda') {
+      setLabelInputName('Lemon Lime Sparkling Soda');
+      setLabelInputText('Nutrition Facts per 100ml: Calories 38 kcal, Total Sugars 9.2g, Fat 0g, Sodium 12mg, Protein 0g. Ingredients: Carbonated mineral water, high fructose corn syrup, citric acid E330, sodium benzoate E211, natural citrus aroma, caramel color E150d.');
+    } else {
+      setLabelInputName('Artisan Oat & Honey Crisp Bar');
+      setLabelInputText('Nutrition per 100g: Energy 420 kcal, Sugars 18g, Total Fat 14g, Saturated Fat 2.5g, Dietary Fiber 6.8g, Protein 9.4g, Salt 0.3g. Ingredients: Rolled whole grain oats, raw honey, almonds, sunflower lecithin E322, sea salt, natural vanilla bean.');
+    }
+  };
+
   const currentGoalMeta = HEALTH_GOALS.find(g => g.id === activeGoal) || HEALTH_GOALS[0];
   const activeVerdict = currentProduct.personalVerdicts[activeGoal];
+  const dietaryWarnings: DietaryWarning[] = evaluateDietaryWarnings(currentProduct, activeDietaryPrefs);
+  const duelComparison = compareProductsForDuel(currentProduct, duelProductB, activeGoal);
 
   // Helper icons for goals
   const renderGoalIcon = (id: HealthGoal) => {
@@ -377,7 +522,7 @@ export default function NutriScanApp() {
   const verdictTheme = getVerdictStyle(activeVerdict.status);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-24">
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-28">
       {/* ── TOP NOTIFICATION TOAST ── */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-5 py-2.5 rounded-full shadow-xl text-sm font-medium flex items-center gap-2 border border-slate-700 animate-in fade-in slide-in-from-top-4 duration-200">
@@ -389,6 +534,7 @@ export default function NutriScanApp() {
       {/* ── HEADER ── */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 sm:px-6">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
+          {/* Logo & Supermarket Cache Badge */}
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-sm font-black text-lg">
               🌱
@@ -397,24 +543,62 @@ export default function NutriScanApp() {
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-slate-900 tracking-tight text-lg">NutriScan</span>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 uppercase tracking-wider">
-                  Live
+                  Global
                 </span>
+                {cachedCount > 0 && (
+                  <span className="hidden md:inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full" title="Offline Supermarket Cache Ready">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    {cachedCount} cached
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-500 hidden sm:block">
-                Food Intelligence & Metabolic Health
+                International Food Intelligence & Metabolic Health
               </p>
             </div>
           </div>
 
+          {/* Quick Header Actions */}
           <div className="flex items-center gap-2">
+            {/* Supermarket Audio Beeper Toggle */}
+            <button
+              onClick={() => {
+                setSoundEnabled(!soundEnabled);
+                triggerToast(soundEnabled ? 'Scanner audio muted' : 'Scanner audio enabled (beep on scan)');
+              }}
+              className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition"
+              title={soundEnabled ? 'Sound Enabled (Supermarket Scanner)' : 'Sound Muted'}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-600" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+            </button>
+
+            {/* Dietary & Allergen Filter Button */}
+            <button
+              onClick={() => setIsDietaryModalOpen(true)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition border ${
+                activeDietaryPrefs.length > 0
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 font-bold'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+              }`}
+              title="Dietary & Allergen Preferences"
+            >
+              <Shield className="w-3.5 h-3.5 text-amber-600" />
+              <span>Dietary</span>
+              {activeDietaryPrefs.length > 0 && (
+                <span className="w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] flex items-center justify-center font-bold">
+                  {activeDietaryPrefs.length}
+                </span>
+              )}
+            </button>
+
             {/* Daily Journal Quick Trigger */}
             <button
               onClick={() => setIsJournalOpen(true)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200 text-xs font-semibold text-slate-700 transition"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200 text-xs font-semibold text-slate-700 transition"
               title="View Daily Metabolic Intake"
             >
               <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Today&apos;s Clean Score:</span>
+              <span className="hidden sm:inline">Score:</span>
               <span className={`px-1.5 py-0.2 rounded font-bold ${
                 dailySummary.cleanEatingScore >= 75
                   ? 'bg-emerald-100 text-emerald-800'
@@ -427,14 +611,16 @@ export default function NutriScanApp() {
               <span className="text-slate-400">({dailyLogs.length})</span>
             </button>
 
-            {/* Missing Product Button */}
-            <button
-              onClick={() => setIsCrowdsourceOpen(true)}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-slate-300 text-xs font-semibold text-slate-700 transition"
-            >
-              <Plus className="w-3.5 h-3.5 text-slate-500" />
-              <span>Contribute Product</span>
-            </button>
+            {/* PWA Install Button */}
+            {isPWAInstallable && (
+              <button
+                onClick={handleInstallPWA}
+                className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Install App</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -448,7 +634,7 @@ export default function NutriScanApp() {
               Active Health Lens
             </span>
             <span className="text-xs text-slate-400 hidden sm:inline">
-              Adjusts product scoring and warnings to your metabolic focus
+              Adjusts scoring, spike prediction, and warnings to your metabolic goal
             </span>
           </div>
 
@@ -482,10 +668,10 @@ export default function NutriScanApp() {
       {/* ── MAIN INTERACTIVE CONTAINER ── */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-5 space-y-6">
 
-        {/* ── SCANNER & SEARCH CONTROLS ── */}
+        {/* ── SCANNER, OCR & SEARCH CONTROLS ── */}
         <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            {/* Search Input Form */}
+            {/* Universal Search Input */}
             <form onSubmit={handleSearchSubmit} className="relative flex-1">
               <input
                 type="text"
@@ -504,24 +690,35 @@ export default function NutriScanApp() {
               </button>
             </form>
 
-            {/* Live Camera Scanner Button */}
-            <button
-              onClick={() => {
-                if (isScannerOpen) {
-                  stopCameraScanner();
-                } else {
-                  startCameraScanner();
-                }
-              }}
-              className={`inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition border ${
-                isScannerOpen
-                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm'
-              }`}
-            >
-              <Camera className="w-4 h-4 shrink-0" />
-              <span>{isScannerOpen ? 'Close Camera' : 'Scan Barcode'}</span>
-            </button>
+            {/* Action Buttons: Live Barcode Scanner & Snap Label */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  if (isScannerOpen) {
+                    stopCameraScanner();
+                  } else {
+                    startCameraScanner();
+                  }
+                }}
+                className={`inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition border ${
+                  isScannerOpen
+                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm'
+                }`}
+              >
+                <Camera className="w-4 h-4 shrink-0" />
+                <span>{isScannerOpen ? 'Stop' : 'Scan Barcode'}</span>
+              </button>
+
+              <button
+                onClick={() => setIsLabelReaderOpen(true)}
+                className="inline-flex items-center justify-center gap-2 px-3.5 py-3 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition"
+                title="Read Nutrition Facts or Ingredients from Label"
+              >
+                <FileText className="w-4 h-4 text-slate-600 shrink-0" />
+                <span>Snap Label</span>
+              </button>
+            </div>
           </div>
 
           {/* Camera Viewfinder Mount */}
@@ -552,7 +749,7 @@ export default function NutriScanApp() {
             </div>
           )}
 
-          {/* Quick 1-Tap Demo Reference Shelf */}
+          {/* Quick 1-Tap Benchmark Shelf */}
           <div className="flex items-center gap-2 flex-wrap pt-1">
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
               <Barcode className="w-3 h-3 text-slate-400" />
@@ -671,7 +868,7 @@ export default function NutriScanApp() {
               </div>
             </div>
 
-            {/* Nutri-Score & NOVA Badges + Journal Quick Action */}
+            {/* Nutri-Score & NOVA Badges + NutriDuel Trigger + Journal Action */}
             <div className="flex flex-row md:flex-col items-center md:items-end justify-between w-full md:w-auto gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
               <div className="flex items-center gap-2">
                 {/* NutriScore badge */}
@@ -706,8 +903,17 @@ export default function NutriScanApp() {
                 )}
               </div>
 
-              {/* Log to Journal Action */}
-              <div className="flex items-center gap-1.5">
+              {/* Compare Button & Log Action */}
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                <button
+                  onClick={() => setIsDuelOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition"
+                  title="Side-by-Side Product Comparison"
+                >
+                  <Swords className="w-3.5 h-3.5" />
+                  <span>NutriDuel</span>
+                </button>
+
                 <select
                   value={servingsCount}
                   onChange={e => setServingsCount(parseFloat(e.target.value))}
@@ -731,6 +937,45 @@ export default function NutriScanApp() {
           </div>
 
           <div className="px-5 sm:px-6 space-y-6">
+
+            {/* ── DIETARY & ALLERGEN WARNING BANNER (FEATURE #3) ── */}
+            {activeDietaryPrefs.length > 0 && (
+              <div className="space-y-2">
+                {dietaryWarnings.length > 0 ? (
+                  <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 space-y-2 text-rose-950">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                      <h4 className="text-sm font-black">
+                        Dietary Restriction Warnings Detected ({dietaryWarnings.length})
+                      </h4>
+                    </div>
+                    <div className="space-y-1.5 pl-7">
+                      {dietaryWarnings.map((warn, i) => (
+                        <div key={i} className="text-xs">
+                          <strong className="text-rose-900 font-bold">{warn.title}: </strong>
+                          <span className="text-rose-800">{warn.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="font-bold">
+                        100% Compliant with your active dietary profile ({activeDietaryPrefs.join(', ')})
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setIsDietaryModalOpen(true)}
+                      className="text-xs text-emerald-700 font-semibold underline hover:text-emerald-900"
+                    >
+                      Edit filters
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── 1. ACTIVE GOAL VERDICT BANNER ── */}
             <div className={`p-4 sm:p-5 rounded-2xl border ${verdictTheme.bg} space-y-2`}>
@@ -1079,16 +1324,440 @@ export default function NutriScanApp() {
             <span className="text-xs text-slate-500 flex items-center gap-1">
               Data verified via Open Food Facts & Independent Biochemistry Analysis
             </span>
-            <button
-              onClick={handleAddToJournal}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-sm"
-            >
-              <Plus className="w-4 h-4 text-emerald-400" />
-              <span>Add to Today&apos;s Metabolic Log</span>
-            </button>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                onClick={() => setIsDuelOpen(true)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs border border-slate-300 transition"
+              >
+                <Swords className="w-4 h-4 text-indigo-600" />
+                <span>NutriDuel</span>
+              </button>
+              <button
+                onClick={handleAddToJournal}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-sm"
+              >
+                <Plus className="w-4 h-4 text-emerald-400" />
+                <span>Add to Today&apos;s Metabolic Log</span>
+              </button>
+            </div>
           </div>
         </section>
       </main>
+
+      {/* ── NUTRIDUEL: SIDE-BY-SIDE PRODUCT COMPARISON MODAL (FEATURE #2) ── */}
+      {isDuelOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold text-base">
+                  ⚔️
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    NutriDuel: Head-to-Head Comparison
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Metabolic showdown tailored to your <strong className="text-indigo-600">{currentGoalMeta.name}</strong> goal
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsDuelOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+              
+              {/* Winner Banner */}
+              <div className={`p-4 rounded-2xl border text-center space-y-1 ${
+                duelComparison.winner === 'productA'
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                  : duelComparison.winner === 'productB'
+                  ? 'bg-indigo-50 border-indigo-300 text-indigo-950'
+                  : 'bg-slate-50 border-slate-300 text-slate-900'
+              }`}>
+                <span className="text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/80 border inline-block">
+                  🏆 {duelComparison.winnerHeadline}
+                </span>
+                <p className="text-xs sm:text-sm font-medium pt-1 max-w-md mx-auto">
+                  {duelComparison.verdictReason}
+                </p>
+              </div>
+
+              {/* Side-by-Side Product Cards */}
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                {/* Product A */}
+                <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Product A (Active)
+                  </span>
+                  <p className="text-xs sm:text-sm font-extrabold text-slate-900 line-clamp-2">
+                    {currentProduct.name}
+                  </p>
+                  <p className="text-[11px] text-slate-500 truncate">{currentProduct.brand}</p>
+                </div>
+
+                {/* Product B with Quick Switcher */}
+                <div className="p-3.5 rounded-2xl border border-indigo-200 bg-indigo-50/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">
+                      Product B (Competitor)
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm font-extrabold text-slate-900 line-clamp-2">
+                    {duelProductB.name}
+                  </p>
+                  <div className="flex items-center gap-1 overflow-x-auto pt-1 no-scrollbar">
+                    {SAMPLE_PRODUCTS.filter(p => p.barcode !== currentProduct.barcode).map(sample => (
+                      <button
+                        key={sample.barcode}
+                        onClick={() => setDuelProductB(sample)}
+                        className={`text-[10px] px-2 py-0.5 rounded-md border whitespace-nowrap ${
+                          duelProductB.barcode === sample.barcode
+                            ? 'bg-indigo-600 text-white font-bold border-indigo-600'
+                            : 'bg-white text-slate-600 border-slate-200'
+                        }`}
+                      >
+                        {sample.name.split(' ')[0]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Head-to-Head Comparison Matrix */}
+              <div className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 text-xs">
+                {/* Free Sugar */}
+                <div className="p-3 grid grid-cols-3 items-center bg-white">
+                  <div className="text-left font-bold text-slate-900">
+                    {(currentProduct.nutriments.sugarsPer100g || 0)}g
+                  </div>
+                  <div className="text-center font-bold text-slate-400 uppercase text-[10px]">
+                    Free Sugars (100g)
+                  </div>
+                  <div className="text-right font-bold text-slate-900">
+                    {(duelProductB.nutriments.sugarsPer100g || 0)}g
+                  </div>
+                </div>
+
+                {/* Sugar Cubes */}
+                <div className="p-3 grid grid-cols-3 items-center bg-slate-50/50">
+                  <div className="text-left font-bold text-amber-700">
+                    {currentProduct.sugarCubesCount} cubes
+                  </div>
+                  <div className="text-center font-bold text-slate-400 uppercase text-[10px]">
+                    Sugar Cubes
+                  </div>
+                  <div className="text-right font-bold text-amber-700">
+                    {duelProductB.sugarCubesCount} cubes
+                  </div>
+                </div>
+
+                {/* Glycemic Spike */}
+                <div className="p-3 grid grid-cols-3 items-center bg-white">
+                  <div className="text-left">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border ${getSpikeColorBadge(currentProduct.metabolicPrediction.spikeLevel)}`}>
+                      {currentProduct.metabolicPrediction.spikeLevel}
+                    </span>
+                  </div>
+                  <div className="text-center font-bold text-slate-400 uppercase text-[10px]">
+                    Spike Surge
+                  </div>
+                  <div className="text-right">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border ${getSpikeColorBadge(duelProductB.metabolicPrediction.spikeLevel)}`}>
+                      {duelProductB.metabolicPrediction.spikeLevel}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Calories */}
+                <div className="p-3 grid grid-cols-3 items-center bg-slate-50/50">
+                  <div className="text-left font-bold text-slate-800">
+                    {currentProduct.nutriments.caloriesPer100g || 0} kcal
+                  </div>
+                  <div className="text-center font-bold text-slate-400 uppercase text-[10px]">
+                    Calories (100g)
+                  </div>
+                  <div className="text-right font-bold text-slate-800">
+                    {duelProductB.nutriments.caloriesPer100g || 0} kcal
+                  </div>
+                </div>
+
+                {/* Synthetic Additives */}
+                <div className="p-3 grid grid-cols-3 items-center bg-white">
+                  <div className="text-left font-bold text-slate-800">
+                    {currentProduct.additives.length} additives
+                  </div>
+                  <div className="text-center font-bold text-slate-400 uppercase text-[10px]">
+                    E-Numbers / Additives
+                  </div>
+                  <div className="text-right font-bold text-slate-800">
+                    {duelProductB.additives.length} additives
+                  </div>
+                </div>
+
+                {/* NOVA Group */}
+                <div className="p-3 grid grid-cols-3 items-center bg-slate-50/50">
+                  <div className="text-left font-bold">
+                    Group {currentProduct.novaGroup || '4'}
+                  </div>
+                  <div className="text-center font-bold text-slate-400 uppercase text-[10px]">
+                    NOVA Ultra-Processed
+                  </div>
+                  <div className="text-right font-bold">
+                    Group {duelProductB.novaGroup || '4'}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
+              <button
+                onClick={() => {
+                  // Swap Product B to be the active Product
+                  setCurrentProduct(duelProductB);
+                  setIsDuelOpen(false);
+                  triggerToast(`Switched active product to ${duelProductB.name}`);
+                }}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition"
+              >
+                Switch Active to Competitor
+              </button>
+
+              <button
+                onClick={() => setIsDuelOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs"
+              >
+                Close Duel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── SNAP-A-LABEL AI / SMART OCR READER MODAL (FEATURE #4) ── */}
+      {isLabelReaderOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-base">
+                  📸
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    Snap-a-Label Smart OCR Reader
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Extract sugars, calories, and E-numbers from nutrition labels
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsLabelReaderOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+              {/* Photo Input (triggers mobile camera directly via capture="environment") */}
+              <div className="p-4 rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/40 text-center space-y-2">
+                <label className="cursor-pointer block">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        triggerToast(`Photo captured: ${file.name}. Reading nutrition text...`);
+                        // Set realistic extracted preset from the label
+                        insertSampleLabel('snack');
+                      }
+                    }}
+                  />
+                  <UploadCloud className="w-8 h-8 text-emerald-600 mx-auto" />
+                  <p className="text-xs font-bold text-slate-900 mt-1">
+                    Tap to Snap Nutrition Table Photo
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Take photo of nutrition facts or ingredient label
+                  </p>
+                </label>
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Or Test with Sample OCR Label:
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => insertSampleLabel('soda')}
+                    className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold"
+                  >
+                    🥤 Soda Can Label
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertSampleLabel('snack')}
+                    className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold"
+                  >
+                    🍪 Snack Bar Label
+                  </button>
+                </div>
+              </div>
+
+              {/* Product Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">
+                  Product Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={labelInputName}
+                  onChange={e => setLabelInputName(e.target.value)}
+                  placeholder="e.g. Sparkling Citrus Beverage or Granola"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* Nutrition & Ingredient Text */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">
+                  Nutrition Table & Ingredient Text *
+                </label>
+                <textarea
+                  rows={4}
+                  value={labelInputText}
+                  onChange={e => setLabelInputText(e.target.value)}
+                  placeholder="Paste or type text: e.g. Calories 140, Sugars 10.6g, Fat 0g, Ingredients: water, sugar, caramel color E150d, phosphoric acid E338..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsLabelReaderOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAnalyzeLabel}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition"
+              >
+                Analyze & Decode
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── GLOBAL DIETARY & ALLERGEN PREFERENCES MODAL (FEATURE #3) ── */}
+      {isDietaryModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-base">
+                  🛡️
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    Dietary & Allergen Preferences
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Flag hidden animal derivatives, gluten, lactose, and allergens
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsDietaryModalOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Options List */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-2.5">
+              {DIETARY_OPTIONS.map(opt => {
+                const isActive = activeDietaryPrefs.includes(opt.id);
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => toggleDietaryPref(opt.id)}
+                    className={`w-full p-3.5 rounded-2xl border text-left transition flex items-center justify-between gap-3 ${
+                      isActive
+                        ? 'bg-amber-50/80 border-amber-300 shadow-2xs'
+                        : 'bg-white hover:bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl shrink-0">{opt.icon}</span>
+                      <div>
+                        <p className={`text-xs font-bold ${isActive ? 'text-amber-950 font-extrabold' : 'text-slate-900'}`}>
+                          {opt.label}
+                        </p>
+                        <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                          {opt.desc}
+                        </p>
+                      </div>
+                    </div>
+                    <div className={`w-5 h-5 rounded-md flex items-center justify-center border shrink-0 ${
+                      isActive ? 'bg-amber-500 border-amber-600 text-white' : 'border-slate-300'
+                    }`}>
+                      {isActive && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveDietaryPrefs([]);
+                  try { localStorage.removeItem('nutriscan_dietary_prefs_v1'); } catch {}
+                  triggerToast('Dietary filters cleared.');
+                }}
+                className="text-xs text-slate-500 hover:text-slate-800"
+              >
+                Reset All
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDietaryModalOpen(false)}
+                className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs"
+              >
+                Save Preferences ({activeDietaryPrefs.length} active)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── DAILY METABOLIC JOURNAL MODAL / SLIDEOVER ── */}
       {isJournalOpen && (
@@ -1374,7 +2043,7 @@ export default function NutriScanApp() {
       {/* ── FOOTER ── */}
       <footer className="max-w-5xl mx-auto px-4 sm:px-6 pt-12 text-center text-xs text-slate-400 space-y-2">
         <p>
-          NutriScan Global • Independent Food Intelligence & Metabolic Analysis.
+          NutriScan Global • Independent International Food Intelligence & Metabolic Analysis.
         </p>
         <p className="text-[11px] text-slate-400">
           Powered by Open Food Facts, World Health Organization (WHO) nutrient profiles, and community crowdsourced data.

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="100%" stop-color="#0d9488" />
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="42" fill="url(#grad)" />
+  <g fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Barcode and Scan Beam Motif -->
+    <path d="M48 60v72" stroke-width="8" />
+    <path d="M68 60v72" stroke-width="6" />
+    <path d="M84 60v72" stroke-width="10" />
+    <path d="M104 60v72" stroke-width="6" />
+    <path d="M124 60v72" stroke-width="8" />
+    <path d="M144 60v72" stroke-width="6" />
+    <!-- Center Leaf / Metabolic Sprout -->
+    <path d="M96 40c26 0 46 20 46 46 0 26-20 46-46 46s-46-20-46-46c0-26 20-46 46-46z" fill="#10b981" fill-opacity="0.3" stroke="none" />
+    <path d="M96 96c14-14 26-6 26-6s8 12-6 26-20 6-20 6-8-12 0-26z" fill="#ffffff" stroke="#ffffff" stroke-width="4" />
+  </g>
+</svg>
