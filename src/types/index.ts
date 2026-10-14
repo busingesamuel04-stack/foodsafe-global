@@ -121,11 +121,22 @@ export interface DuelComparison {
   additivesDiff: number;
 }
 
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
 export interface DailyLogItem {
   id: string;
   product: ScannedProduct;
   loggedAt: string;
   servingsCount: number;
+  mealType: MealType;
+}
+
+export interface FoodCategoryMeta {
+  id: string;
+  name: string;
+  icon: string;
+  query: string;
+  desc: string;
 }
 
 export interface DailyMetabolicSummary {

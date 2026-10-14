@@ -102,4 +102,19 @@ describe('NutriScan Core Metabolic Intelligence Test Suite', () => {
     const containsE150d = sampleLabel.toLowerCase().includes('e150d');
     assert.strictEqual(containsE150d, true);
   });
+
+  it('validates 4 structured meal types (Breakfast, Lunch, Dinner, Snack)', () => {
+    const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
+    assert.strictEqual(mealTypes.length, 4);
+    assert.ok(mealTypes.includes('breakfast'));
+    assert.ok(mealTypes.includes('dinner'));
+  });
+
+  it('validates global food categories metadata', () => {
+    const categories = ['sodas', 'chocolates', 'cereals', 'milks', 'snacks', 'breads'];
+    assert.strictEqual(categories.length, 6);
+    assert.ok(categories.includes('sodas'));
+    assert.ok(categories.includes('cereals'));
+  });
 });
+

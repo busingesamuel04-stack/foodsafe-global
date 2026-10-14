@@ -10,7 +10,9 @@ import {
   CrowdsourcedProductSubmission,
   DietaryPreference,
   DietaryWarning,
-  DuelComparison
+  DuelComparison,
+  MealType,
+  FoodCategoryMeta
 } from '@/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
@@ -903,19 +905,36 @@ export function getStoredDailyLogs(): DailyLogItem[] {
   }
 }
 
-export function saveDailyLogItem(product: ScannedProduct, servings: number = 1): DailyLogItem[] {
+export function saveDailyLogItem(
+  product: ScannedProduct, 
+  servings: number = 1,
+  mealType?: MealType
+): DailyLogItem[] {
   if (typeof window === 'undefined') return [];
   const current = getStoredDailyLogs();
+
+  // Auto-detect meal type based on hour if not explicitly provided
+  let assignedMeal: MealType = mealType || 'snack';
+  if (!mealType) {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 11) assignedMeal = 'breakfast';
+    else if (hour >= 11 && hour < 16) assignedMeal = 'lunch';
+    else if (hour >= 16 && hour < 21) assignedMeal = 'dinner';
+    else assignedMeal = 'snack';
+  }
+
   const newItem: DailyLogItem = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     product,
     loggedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    servingsCount: servings
+    servingsCount: servings,
+    mealType: assignedMeal
   };
   const updated = [newItem, ...current];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   return updated;
 }
+
 
 export function removeDailyLogItem(id: string): DailyLogItem[] {
   if (typeof window === 'undefined') return [];
@@ -1377,5 +1396,74 @@ export function parseNutritionAndIngredientsFromText(
   const product = normalizeProductData(mockRawData, barcode);
   saveProductToOfflineCache(product);
   return product;
+}
+
+// 12. POPULAR CATEGORIES & EXPLORER API
+export const POPULAR_CATEGORIES: FoodCategoryMeta[] = [
+  {
+    id: 'sodas',
+    name: 'Sodas & Refreshers',
+    icon: '🥤',
+    query: 'soda',
+    desc: 'Carbonated soft drinks, colas, lemonades & sparkling drinks'
+  },
+  {
+    id: 'chocolates',
+    name: 'Chocolates & Confectionery',
+    icon: '🍫',
+    query: 'chocolate',
+    desc: 'Cocoa solids, hazelnut spreads, wafer bars & candies'
+  },
+  {
+    id: 'cereals',
+    name: 'Breakfast Cereals & Oats',
+    icon: '🥣',
+    query: 'cereals',
+    desc: 'Whole rolled oats, puffed grains, muesli & breakfast flakes'
+  },
+  {
+    id: 'milks',
+    name: 'Plant Milks & Yogurts',
+    icon: '🥛',
+    query: 'plant milk',
+    desc: 'Oat, almond, coconut, and soy milks plus active yogurts'
+  },
+  {
+    id: 'snacks',
+    name: 'Savory Snacks & Chips',
+    icon: '🥨',
+    query: 'chips',
+    desc: 'Potato crisps, tortilla snacks, roasted nuts & savory bites'
+  },
+  {
+    id: 'breads',
+    name: 'Breads & Whole Bakery',
+    icon: '🍞',
+    query: 'bread',
+    desc: 'Artisan sourdough, seeded loaves & wholemeal bakery'
+  }
+];
+
+export async function fetchCategoryProducts(query: string): Promise<ScannedProduct[]> {
+  return searchProducts(query);
+}
+
+// 13. REAL CLIENT-SIDE IN-BROWSER OCR VIA TESSERACT.JS
+export async function recognizeLabelImage(
+  imageSource: File | Blob | string,
+  onProgress?: (progress: number, status: string) => void
+): Promise<string> {
+  const { createWorker } = await import('tesseract.js');
+  const worker = await createWorker('eng', 1, {
+    logger: (m: { status?: string; progress?: number }) => {
+      if (onProgress && typeof m.progress === 'number') {
+        onProgress(Math.round(m.progress * 100), m.status || 'Scanning label...');
+      }
+    }
+  });
+
+  const ret = await worker.recognize(imageSource);
+  await worker.terminate();
+  return ret.data.text;
 }
 

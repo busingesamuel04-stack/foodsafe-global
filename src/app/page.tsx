@@ -33,8 +33,10 @@ import {
   UploadCloud,
   Check,
   Shield,
-  ArrowRight,
-  Leaf
+  ArrowLeft,
+  Share2,
+  Clock,
+  Layers
 } from 'lucide-react';
 import {
   HealthGoal,
@@ -43,13 +45,16 @@ import {
   DailyMetabolicSummary,
   CrowdsourcedProductSubmission,
   DietaryPreference,
-  DietaryWarning
+  DietaryWarning,
+  MealType
 } from '@/types';
 import {
   HEALTH_GOALS,
   SAMPLE_PRODUCTS,
+  POPULAR_CATEGORIES,
   lookupProductByBarcode,
   searchProducts,
+  fetchCategoryProducts,
   getStoredDailyLogs,
   saveDailyLogItem,
   removeDailyLogItem,
@@ -61,7 +66,8 @@ import {
   evaluateDietaryWarnings,
   compareProductsForDuel,
   parseNutritionAndIngredientsFromText,
-  getCachedProducts
+  getCachedProducts,
+  recognizeLabelImage
 } from '@/lib/services/nutriScanService';
 
 const DIETARY_OPTIONS: { id: DietaryPreference; label: string; icon: string; desc: string }[] = [
@@ -77,37 +83,47 @@ const DIETARY_OPTIONS: { id: DietaryPreference; label: string; icon: string; des
 export default function NutriScanApp() {
   // 1. Core State
   const [activeGoal, setActiveGoal] = useState<HealthGoal>('blood_sugar');
-  const [currentProduct, setCurrentProduct] = useState<ScannedProduct>(SAMPLE_PRODUCTS[0]);
+  const [currentProduct, setCurrentProduct] = useState<ScannedProduct | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<ScannedProduct[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // 2. Camera Scanner & Supermarket Mode State
+  // 2. Persistent Scan History & Offline Supermarket Cache
+  const [cachedHistory, setCachedHistory] = useState<ScannedProduct[]>([]);
+
+  // 3. Category Explorer State
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [categoryProducts, setCategoryProducts] = useState<ScannedProduct[]>([]);
+  const [isCategoryLoading, setIsCategoryLoading] = useState(false);
+
+  // 4. Camera Scanner & Audio Feedback
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [cachedCount, setCachedCount] = useState(0);
   const scannerRef = useRef<unknown>(null);
 
-  // 3. PWA Installation State
+  // 5. PWA Installation State
   const [deferredPrompt, setDeferredPrompt] = useState<unknown>(null);
   const [isPWAInstallable, setIsPWAInstallable] = useState(false);
 
-  // 4. Global Dietary Preferences State
+  // 6. Global Dietary Preferences State
   const [activeDietaryPrefs, setActiveDietaryPrefs] = useState<DietaryPreference[]>([]);
   const [isDietaryModalOpen, setIsDietaryModalOpen] = useState(false);
 
-  // 5. NutriDuel Side-by-Side State
+  // 7. NutriDuel Side-by-Side State
   const [isDuelOpen, setIsDuelOpen] = useState(false);
   const [duelProductB, setDuelProductB] = useState<ScannedProduct>(SAMPLE_PRODUCTS[1]);
 
-  // 6. Snap-a-Label AI / Smart OCR Reader State
+  // 8. Snap-a-Label Real In-Browser OCR Reader State
   const [isLabelReaderOpen, setIsLabelReaderOpen] = useState(false);
   const [labelInputName, setLabelInputName] = useState('');
   const [labelInputText, setLabelInputText] = useState('');
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrStatusText, setOcrStatusText] = useState('');
 
-  // 7. Daily Metabolic Journal State
+  // 9. Structured Meal Daily Journal State
   const [dailyLogs, setDailyLogs] = useState<DailyLogItem[]>([]);
   const [dailySummary, setDailySummary] = useState<DailyMetabolicSummary>({
     totalCalories: 0,
@@ -120,9 +136,11 @@ export default function NutriScanApp() {
     cleanEatingScore: 100
   });
   const [servingsCount, setServingsCount] = useState(1);
+  const [selectedMealType, setSelectedMealType] = useState<MealType>('snack');
+  const [activeMealTab, setActiveMealTab] = useState<'all' | MealType>('all');
   const [isJournalOpen, setIsJournalOpen] = useState(false);
 
-  // 8. Missing Product Crowdsource Modal
+  // 10. Missing Product Crowdsource Modal
   const [isCrowdsourceOpen, setIsCrowdsourceOpen] = useState(false);
   const [crowdsourceForm, setCrowdsourceForm] = useState({
     barcode: '',
@@ -139,7 +157,7 @@ export default function NutriScanApp() {
     success?: boolean;
   }>({ loading: false, message: null });
 
-  // 9. Toast Feedback
+  // 11. Toast Feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const triggerToast = useCallback((msg: string) => {
@@ -149,16 +167,23 @@ export default function NutriScanApp() {
     }, 3500);
   }, []);
 
-  // Initialize from LocalStorage & PWA listeners
+  // Initialize from LocalStorage & Setup Auto-Meal Detection
   useEffect(() => {
     // Load daily logs
     const loaded = getStoredDailyLogs();
     setDailyLogs(loaded);
     setDailySummary(calculateDailySummary(loaded));
 
-    // Load offline cached count
+    // Load offline cached history
     const cached = getCachedProducts();
-    setCachedCount(cached.length);
+    setCachedHistory(cached);
+
+    // Auto-detect meal type based on hour
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 11) setSelectedMealType('breakfast');
+    else if (hour >= 11 && hour < 16) setSelectedMealType('lunch');
+    else if (hour >= 16 && hour < 21) setSelectedMealType('dinner');
+    else setSelectedMealType('snack');
 
     // Load saved dietary preferences
     try {
@@ -182,6 +207,11 @@ export default function NutriScanApp() {
       window.removeEventListener('beforeinstallprompt', promptHandler);
     };
   }, []);
+
+  // Refresh recent history helper
+  const refreshHistory = () => {
+    setCachedHistory(getCachedProducts());
+  };
 
   // Toggle dietary preference
   const toggleDietaryPref = (id: DietaryPreference) => {
@@ -227,6 +257,7 @@ export default function NutriScanApp() {
         setCurrentProduct(direct);
         setSearchResults([]);
         setIsSearching(false);
+        refreshHistory();
         if (soundEnabled) playScannerBeep();
         triggerHapticFeedback();
         triggerToast(`Loaded: ${direct.name}`);
@@ -239,29 +270,47 @@ export default function NutriScanApp() {
     setSearchResults(results);
     if (results.length > 0) {
       setCurrentProduct(results[0]);
+      refreshHistory();
     }
     setIsSearching(false);
   };
 
-  // Select a product from search results or demo buttons
+  // Select a product from search, recents, or categories
   const handleSelectProduct = (product: ScannedProduct) => {
     setCurrentProduct(product);
     setSearchResults([]);
     setHasSearched(false);
     setSearchQuery('');
+    refreshHistory();
     if (soundEnabled) playScannerBeep();
     triggerHapticFeedback();
-    window.scrollTo({ top: 380, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Add current product to daily journal
+  // Category selection handler
+  const handleSelectCategory = async (catId: string, query: string) => {
+    if (selectedCategory === catId) {
+      setSelectedCategory(null);
+      setCategoryProducts([]);
+      return;
+    }
+
+    setSelectedCategory(catId);
+    setIsCategoryLoading(true);
+    const prods = await fetchCategoryProducts(query);
+    setCategoryProducts(prods);
+    setIsCategoryLoading(false);
+  };
+
+  // Add current product to daily journal with specific meal type
   const handleAddToJournal = () => {
-    const updated = saveDailyLogItem(currentProduct, servingsCount);
+    if (!currentProduct) return;
+    const updated = saveDailyLogItem(currentProduct, servingsCount, selectedMealType);
     setDailyLogs(updated);
     setDailySummary(calculateDailySummary(updated));
     if (soundEnabled) playScannerBeep();
     triggerHapticFeedback();
-    triggerToast(`Logged ${servingsCount}x ${currentProduct.name} to Today!`);
+    triggerToast(`Logged to ${selectedMealType.toUpperCase()}: ${servingsCount}x ${currentProduct.name}!`);
   };
 
   // Remove item from journal
@@ -278,6 +327,26 @@ export default function NutriScanApp() {
       setDailyLogs([]);
       setDailySummary(calculateDailySummary([]));
       triggerToast('Today’s journal cleared.');
+    }
+  };
+
+  // Export Daily Metabolic Summary to Clipboard
+  const handleExportSummary = () => {
+    const text = `📊 NutriScan Daily Report (${new Date().toLocaleDateString()})
+Clean Eating Index: ${dailySummary.cleanEatingScore}/100
+Total Calories: ${dailySummary.totalCalories} kcal
+Sugar Consumed: ${dailySummary.totalSugarGrams}g (${dailySummary.sugarDailyLimitPercent}% of WHO 25g limit)
+NOVA 4 Ultra-Processed: ${dailySummary.ultraProcessedItemsCount} items
+Additives Detected: ${dailySummary.chemicalAdditivesCount}
+
+Meals Logged:
+${dailyLogs.map(l => `• [${l.mealType.toUpperCase()}] ${l.product.name} (${l.servingsCount}x)`).join('\n')}
+
+Generated via NutriScan Global • https://foodsafe-global.pages.dev`;
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      triggerToast('Daily Metabolic Report copied to clipboard!');
     }
   };
 
@@ -373,7 +442,6 @@ export default function NutriScanApp() {
               aspectRatio: 1.0
             },
             async (decodedText: string) => {
-              // Beep & Vibrate like supermarket scanner
               if (soundEnabled) playScannerBeep();
               triggerHapticFeedback();
               await stopCameraScanner();
@@ -382,7 +450,7 @@ export default function NutriScanApp() {
               const found = await lookupProductByBarcode(decodedText);
               if (found) {
                 setCurrentProduct(found);
-                setCachedCount(prev => prev + 1);
+                refreshHistory();
                 triggerToast(`Found: ${found.name}`);
               } else {
                 setCrowdsourceForm(prev => ({ ...prev, barcode: decodedText }));
@@ -422,10 +490,33 @@ export default function NutriScanApp() {
     };
   }, []);
 
-  // Handle Snap-a-Label AI / Smart Text submission
+  // Real In-Browser OCR image upload handler
+  const handlePhotoUploadForOCR = async (file: File) => {
+    setIsOcrProcessing(true);
+    setOcrProgress(5);
+    setOcrStatusText('Initializing Optical Character Recognition...');
+    triggerToast('Reading text from food label...');
+
+    try {
+      const extractedText = await recognizeLabelImage(file, (progress, status) => {
+        setOcrProgress(progress);
+        setOcrStatusText(status);
+      });
+
+      setLabelInputText(extractedText);
+      setIsOcrProcessing(false);
+      triggerToast('OCR Complete! Review extracted ingredients & nutrition.');
+    } catch (err) {
+      console.error('OCR Error:', err);
+      setIsOcrProcessing(false);
+      triggerToast('OCR could not complete. You can type or paste label text below.');
+    }
+  };
+
+  // Handle Snap-a-Label Decode
   const handleAnalyzeLabel = () => {
     if (!labelInputText.trim()) {
-      triggerToast('Please paste or type nutrition/ingredients text from the label.');
+      triggerToast('Please snap a photo or paste nutrition/ingredients text.');
       return;
     }
 
@@ -438,29 +529,23 @@ export default function NutriScanApp() {
     setIsLabelReaderOpen(false);
     setLabelInputName('');
     setLabelInputText('');
-    setCachedCount(prev => prev + 1);
+    refreshHistory();
 
     if (soundEnabled) playScannerBeep();
     triggerHapticFeedback();
-    triggerToast(`Smart Label Analyzed: ${parsed.name}!`);
-    window.scrollTo({ top: 380, behavior: 'smooth' });
-  };
-
-  // Sample label presets for 1-click OCR testing
-  const insertSampleLabel = (type: 'soda' | 'snack') => {
-    if (type === 'soda') {
-      setLabelInputName('Lemon Lime Sparkling Soda');
-      setLabelInputText('Nutrition Facts per 100ml: Calories 38 kcal, Total Sugars 9.2g, Fat 0g, Sodium 12mg, Protein 0g. Ingredients: Carbonated mineral water, high fructose corn syrup, citric acid E330, sodium benzoate E211, natural citrus aroma, caramel color E150d.');
-    } else {
-      setLabelInputName('Artisan Oat & Honey Crisp Bar');
-      setLabelInputText('Nutrition per 100g: Energy 420 kcal, Sugars 18g, Total Fat 14g, Saturated Fat 2.5g, Dietary Fiber 6.8g, Protein 9.4g, Salt 0.3g. Ingredients: Rolled whole grain oats, raw honey, almonds, sunflower lecithin E322, sea salt, natural vanilla bean.');
-    }
+    triggerToast(`Decoded: ${parsed.name}!`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const currentGoalMeta = HEALTH_GOALS.find(g => g.id === activeGoal) || HEALTH_GOALS[0];
-  const activeVerdict = currentProduct.personalVerdicts[activeGoal];
-  const dietaryWarnings: DietaryWarning[] = evaluateDietaryWarnings(currentProduct, activeDietaryPrefs);
-  const duelComparison = compareProductsForDuel(currentProduct, duelProductB, activeGoal);
+  const activeVerdict = currentProduct ? currentProduct.personalVerdicts[activeGoal] : null;
+  const dietaryWarnings: DietaryWarning[] = currentProduct ? evaluateDietaryWarnings(currentProduct, activeDietaryPrefs) : [];
+  const duelComparison = currentProduct ? compareProductsForDuel(currentProduct, duelProductB, activeGoal) : null;
+
+  // Filter journal logs by active meal tab
+  const filteredDailyLogs = activeMealTab === 'all'
+    ? dailyLogs
+    : dailyLogs.filter(item => item.mealType === activeMealTab);
 
   // Helper icons for goals
   const renderGoalIcon = (id: HealthGoal) => {
@@ -519,8 +604,6 @@ export default function NutriScanApp() {
     }
   };
 
-  const verdictTheme = getVerdictStyle(activeVerdict.status);
-
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-28">
       {/* ── TOP NOTIFICATION TOAST ── */}
@@ -536,43 +619,54 @@ export default function NutriScanApp() {
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
           {/* Logo & Supermarket Cache Badge */}
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-sm font-black text-lg">
+            <button
+              onClick={() => {
+                setCurrentProduct(null);
+                setSearchResults([]);
+                setHasSearched(false);
+              }}
+              className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-sm font-black text-lg hover:opacity-90 transition"
+              title="Return to Scanner & Search Hub"
+            >
               🌱
-            </div>
+            </button>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-slate-900 tracking-tight text-lg">NutriScan</span>
+                <span
+                  onClick={() => {
+                    setCurrentProduct(null);
+                    setSearchResults([]);
+                    setHasSearched(false);
+                  }}
+                  className="font-extrabold text-slate-900 tracking-tight text-lg cursor-pointer"
+                >
+                  NutriScan
+                </span>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 uppercase tracking-wider">
                   Global
                 </span>
-                {cachedCount > 0 && (
-                  <span className="hidden md:inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full" title="Offline Supermarket Cache Ready">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    {cachedCount} cached
-                  </span>
-                )}
               </div>
               <p className="text-[11px] text-slate-500 hidden sm:block">
-                International Food Intelligence & Metabolic Health
+                International Food Intelligence & Metabolic Tracker
               </p>
             </div>
           </div>
 
           {/* Quick Header Actions */}
           <div className="flex items-center gap-2">
-            {/* Supermarket Audio Beeper Toggle */}
+            {/* Audio Toggle */}
             <button
               onClick={() => {
                 setSoundEnabled(!soundEnabled);
                 triggerToast(soundEnabled ? 'Scanner audio muted' : 'Scanner audio enabled (beep on scan)');
               }}
               className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition"
-              title={soundEnabled ? 'Sound Enabled (Supermarket Scanner)' : 'Sound Muted'}
+              title={soundEnabled ? 'Scanner Audio Enabled' : 'Audio Muted'}
             >
               {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-600" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
             </button>
 
-            {/* Dietary & Allergen Filter Button */}
+            {/* Dietary Preferences Filter Button */}
             <button
               onClick={() => setIsDietaryModalOpen(true)}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition border ${
@@ -580,7 +674,7 @@ export default function NutriScanApp() {
                   ? 'bg-amber-50 text-amber-900 border-amber-300 font-bold'
                   : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
               }`}
-              title="Dietary & Allergen Preferences"
+              title="Configure Dietary & Allergen Profile"
             >
               <Shield className="w-3.5 h-3.5 text-amber-600" />
               <span>Dietary</span>
@@ -595,7 +689,7 @@ export default function NutriScanApp() {
             <button
               onClick={() => setIsJournalOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200 text-xs font-semibold text-slate-700 transition"
-              title="View Daily Metabolic Intake"
+              title="Open Daily Meal Journal"
             >
               <Calendar className="w-3.5 h-3.5 text-emerald-600" />
               <span className="hidden sm:inline">Score:</span>
@@ -634,7 +728,7 @@ export default function NutriScanApp() {
               Active Health Lens
             </span>
             <span className="text-xs text-slate-400 hidden sm:inline">
-              Adjusts scoring, spike prediction, and warnings to your metabolic goal
+              Adjusts scoring, spike trajectory, and warnings to your metabolic goal
             </span>
           </div>
 
@@ -665,690 +759,750 @@ export default function NutriScanApp() {
         </div>
       </section>
 
-      {/* ── MAIN INTERACTIVE CONTAINER ── */}
+      {/* ── MAIN CONTENT AREA ── */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-5 space-y-6">
 
-        {/* ── SCANNER, OCR & SEARCH CONTROLS ── */}
-        <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            {/* Universal Search Input */}
-            <form onSubmit={handleSearchSubmit} className="relative flex-1">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search food by name, brand, or barcode (e.g. 5449000000996 or Soda)..."
-                className="w-full pl-10 pr-24 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
-              />
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <button
-                type="submit"
-                disabled={isSearching}
-                className="absolute right-2 top-1/2 -translate-y-1/2 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition disabled:opacity-50"
-              >
-                {isSearching ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Search'}
-              </button>
-            </form>
+        {/* ── VIEW A: NO PRODUCT SELECTED -> ACTIVE SCANNER & DISCOVERY HUB ── */}
+        {!currentProduct && (
+          <div className="space-y-6">
 
-            {/* Action Buttons: Live Barcode Scanner & Snap Label */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  if (isScannerOpen) {
-                    stopCameraScanner();
-                  } else {
-                    startCameraScanner();
-                  }
-                }}
-                className={`inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition border ${
-                  isScannerOpen
-                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm'
-                }`}
-              >
-                <Camera className="w-4 h-4 shrink-0" />
-                <span>{isScannerOpen ? 'Stop' : 'Scan Barcode'}</span>
-              </button>
-
-              <button
-                onClick={() => setIsLabelReaderOpen(true)}
-                className="inline-flex items-center justify-center gap-2 px-3.5 py-3 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition"
-                title="Read Nutrition Facts or Ingredients from Label"
-              >
-                <FileText className="w-4 h-4 text-slate-600 shrink-0" />
-                <span>Snap Label</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Camera Viewfinder Mount */}
-          {isScannerOpen && (
-            <div className="relative rounded-2xl overflow-hidden bg-slate-950 p-4 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between text-white text-xs">
-                <span className="font-semibold flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  Align food package barcode inside the viewfinder box
+            {/* Hero Scanner Card */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+              <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="max-w-xl space-y-4 relative z-10">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-400/30">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  International Food Intelligence
                 </span>
-                <button
-                  onClick={stopCameraScanner}
-                  className="p-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+                <h1 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight">
+                  Scan any food product. Decode hidden sugars & additives.
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  Real-time biochemical breakdown, glycemic spike predictions, and chemical decoder backed by Open Food Facts and the World Health Organization.
+                </p>
 
-              {/* Viewport container */}
-              <div id="nutriscan-camera-viewport" className="w-full max-w-sm mx-auto rounded-xl overflow-hidden min-h-[220px]" />
-
-              {scannerError && (
-                <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  <p>{scannerError}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Quick 1-Tap Benchmark Shelf */}
-          <div className="flex items-center gap-2 flex-wrap pt-1">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-              <Barcode className="w-3 h-3 text-slate-400" />
-              1-Tap Test Samples:
-            </span>
-            {SAMPLE_PRODUCTS.map(sample => (
-              <button
-                key={sample.barcode}
-                onClick={() => handleSelectProduct(sample)}
-                className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition ${
-                  currentProduct.barcode === sample.barcode
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold'
-                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
-                }`}
-              >
-                {sample.name.split(' ')[0]} ({sample.brand?.split(' ')[0]})
-              </button>
-            ))}
-          </div>
-
-          {/* Search Results Dropdown/List */}
-          {hasSearched && searchResults.length > 0 && (
-            <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2">
-              <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                <span>Matching Products ({searchResults.length})</span>
-                <button onClick={() => setHasSearched(false)} className="text-slate-400 hover:text-slate-600">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {searchResults.map(prod => (
+                {/* Primary Action Buttons */}
+                <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                   <button
-                    key={prod.barcode}
-                    onClick={() => handleSelectProduct(prod)}
-                    className="p-2.5 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-left transition flex items-center justify-between group"
+                    onClick={() => {
+                      if (isScannerOpen) stopCameraScanner();
+                      else startCameraScanner();
+                    }}
+                    className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm transition shadow-lg shadow-emerald-500/20 active:scale-98"
                   >
-                    <div className="truncate pr-2">
-                      <p className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-700">
-                        {prod.name}
-                      </p>
-                      <p className="text-[11px] text-slate-500 truncate">
-                        {prod.brand || 'Packaged Grocery'} • {prod.nutriments.sugarsPer100g ?? 0}g sugar
-                      </p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-600 shrink-0" />
+                    <Camera className="w-5 h-5 shrink-0" />
+                    <span>{isScannerOpen ? 'Close Camera' : 'Start Camera Scanner'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsLabelReaderOpen(true)}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm border border-white/15 transition active:scale-98"
+                  >
+                    <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Snap Nutrition Label (OCR)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Camera Viewfinder Mount */}
+            {isScannerOpen && (
+              <div className="rounded-2xl overflow-hidden bg-slate-950 p-4 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between text-white text-xs">
+                  <span className="font-semibold flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Align barcode inside the viewfinder box
+                  </span>
+                  <button
+                    onClick={stopCameraScanner}
+                    className="p-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div id="nutriscan-camera-viewport" className="w-full max-w-sm mx-auto rounded-xl overflow-hidden min-h-[220px]" />
+
+                {scannerError && (
+                  <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-200 text-xs flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <p>{scannerError}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Universal Search Bar */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs space-y-3">
+              <form onSubmit={handleSearchSubmit} className="relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search food by name, brand, or barcode (e.g. 5449000000996 or Oatly)..."
+                  className="w-full pl-10 pr-24 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                />
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <button
+                  type="submit"
+                  disabled={isSearching}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition disabled:opacity-50"
+                >
+                  {isSearching ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Search'}
+                </button>
+              </form>
+
+              {/* 1-Tap Benchmarks */}
+              <div className="flex items-center gap-2 flex-wrap pt-1 text-xs">
+                <span className="text-slate-400 font-bold uppercase text-[10px]">Reference Benchmarks:</span>
+                {SAMPLE_PRODUCTS.map(sample => (
+                  <button
+                    key={sample.barcode}
+                    onClick={() => handleSelectProduct(sample)}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition"
+                  >
+                    {sample.name.split(' ')[0]} ({sample.brand?.split(' ')[0]})
                   </button>
                 ))}
               </div>
             </div>
-          )}
 
-          {hasSearched && searchResults.length === 0 && !isSearching && (
-            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center justify-between">
-              <div>
-                <p className="font-bold">No product match found in the global registry.</p>
-                <p className="text-amber-700 text-[11px]">
-                  Unlisted in the global database? Help index this item into the international registry!
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setCrowdsourceForm(prev => ({ ...prev, name: searchQuery }));
-                  setIsCrowdsourceOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shrink-0"
-              >
-                Add Details
-              </button>
-            </div>
-          )}
-        </section>
-
-        {/* ── PRODUCT INTELLIGENCE DOSSIER (CORE CARD) ── */}
-        <section className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs space-y-6">
-          
-          {/* Product Header & Identification */}
-          <div className="p-5 sm:p-6 bg-gradient-to-b from-slate-50 to-white border-b border-slate-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
-            <div className="flex items-start gap-4">
-              {/* Product Visual */}
-              <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-2 shadow-2xs">
-                {currentProduct.imageUrl ? (
-                  <Image
-                    src={currentProduct.imageUrl}
-                    alt={currentProduct.name}
-                    width={96}
-                    height={96}
-                    className="w-full h-full object-contain"
-                    unoptimized
-                  />
-                ) : (
-                  <div className="text-3xl text-slate-300">🥫</div>
-                )}
-              </div>
-
-              {/* Title & Brand */}
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 uppercase tracking-wider">
-                    {currentProduct.brand || 'Packaged Grocery'}
-                  </span>
-                  {currentProduct.category && (
-                    <span className="text-[11px] text-slate-500">
-                      • {currentProduct.category}
-                    </span>
-                  )}
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    [{currentProduct.barcode}]
-                  </span>
+            {/* Search Results Dropdown/List */}
+            {hasSearched && searchResults.length > 0 && (
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span>Search Matches ({searchResults.length})</span>
+                  <button onClick={() => setHasSearched(false)} className="text-slate-400 hover:text-slate-600">
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-tight">
-                  {currentProduct.name}
-                </h1>
-                <p className="text-xs text-slate-500">
-                  Standard Portion: {currentProduct.servingSize || '100g reference measure'}
-                </p>
-              </div>
-            </div>
-
-            {/* Nutri-Score & NOVA Badges + NutriDuel Trigger + Journal Action */}
-            <div className="flex flex-row md:flex-col items-center md:items-end justify-between w-full md:w-auto gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
-              <div className="flex items-center gap-2">
-                {/* NutriScore badge */}
-                {currentProduct.nutriscoreGrade && (
-                  <div className="flex flex-col items-center">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase">Nutri-Score</span>
-                    <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm uppercase text-white shadow-xs ${
-                      currentProduct.nutriscoreGrade === 'a' ? 'bg-emerald-600' :
-                      currentProduct.nutriscoreGrade === 'b' ? 'bg-lime-600' :
-                      currentProduct.nutriscoreGrade === 'c' ? 'bg-yellow-500' :
-                      currentProduct.nutriscoreGrade === 'd' ? 'bg-orange-500' : 'bg-red-600'
-                    }`}>
-                      {currentProduct.nutriscoreGrade}
-                    </span>
-                  </div>
-                )}
-
-                {/* NOVA Group badge */}
-                {currentProduct.novaGroup && (
-                  <div className="flex flex-col items-center">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase">NOVA</span>
-                    <span className={`px-2.5 h-8 rounded-lg flex items-center justify-center font-bold text-xs uppercase border ${
-                      currentProduct.novaGroup === 4
-                        ? 'bg-rose-50 border-rose-200 text-rose-700'
-                        : currentProduct.novaGroup === 3
-                        ? 'bg-amber-50 border-amber-200 text-amber-700'
-                        : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                    }`}>
-                      {currentProduct.novaGroup === 4 ? 'Group 4: Ultra-Processed' : `Group ${currentProduct.novaGroup}`}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Compare Button & Log Action */}
-              <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                <button
-                  onClick={() => setIsDuelOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition"
-                  title="Side-by-Side Product Comparison"
-                >
-                  <Swords className="w-3.5 h-3.5" />
-                  <span>NutriDuel</span>
-                </button>
-
-                <select
-                  value={servingsCount}
-                  onChange={e => setServingsCount(parseFloat(e.target.value))}
-                  className="text-xs bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5 font-semibold text-slate-700 focus:outline-none"
-                  aria-label="Portion size selector"
-                >
-                  <option value={0.5}>0.5x portion</option>
-                  <option value={1}>1x portion</option>
-                  <option value={2}>2x portions</option>
-                  <option value={3}>3x portions</option>
-                </select>
-                <button
-                  onClick={handleAddToJournal}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Log Food</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="px-5 sm:px-6 space-y-6">
-
-            {/* ── DIETARY & ALLERGEN WARNING BANNER (FEATURE #3) ── */}
-            {activeDietaryPrefs.length > 0 && (
-              <div className="space-y-2">
-                {dietaryWarnings.length > 0 ? (
-                  <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 space-y-2 text-rose-950">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
-                      <h4 className="text-sm font-black">
-                        Dietary Restriction Warnings Detected ({dietaryWarnings.length})
-                      </h4>
-                    </div>
-                    <div className="space-y-1.5 pl-7">
-                      {dietaryWarnings.map((warn, i) => (
-                        <div key={i} className="text-xs">
-                          <strong className="text-rose-900 font-bold">{warn.title}: </strong>
-                          <span className="text-rose-800">{warn.reason}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span className="font-bold">
-                        100% Compliant with your active dietary profile ({activeDietaryPrefs.join(', ')})
-                      </span>
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {searchResults.map(prod => (
                     <button
-                      onClick={() => setIsDietaryModalOpen(true)}
-                      className="text-xs text-emerald-700 font-semibold underline hover:text-emerald-900"
+                      key={prod.barcode}
+                      onClick={() => handleSelectProduct(prod)}
+                      className="p-3 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-left transition flex items-center justify-between group"
                     >
-                      Edit filters
+                      <div className="truncate pr-2">
+                        <p className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-700">
+                          {prod.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {prod.brand || 'Packaged Grocery'} • {(prod.nutriments.sugarsPer100g || 0)}g sugar
+                        </p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-600 shrink-0" />
                     </button>
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* ── 1. ACTIVE GOAL VERDICT BANNER ── */}
-            <div className={`p-4 sm:p-5 rounded-2xl border ${verdictTheme.bg} space-y-2`}>
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  {verdictTheme.icon}
-                  <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-full ${verdictTheme.badge} uppercase tracking-wider`}>
-                    {verdictTheme.label}
-                  </span>
-                </div>
-                <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
-                  Goal: <strong className="text-slate-800">{currentGoalMeta.name}</strong>
-                </span>
-              </div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                {activeVerdict.headline}
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-                {activeVerdict.coachingAdvice}
-              </p>
-            </div>
-
-            {/* ── 2. METABOLIC GLYCEMIC SPIKE PREDICTOR ── */}
-            <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-700">
-                    <Activity className="w-4 h-4" />
+            {/* ── RECENTLY SCANNED SHELF (PERSISTENT HISTORY) ── */}
+            {cachedHistory.length > 0 && (
+              <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-emerald-600" />
+                    <h2 className="text-sm font-bold text-slate-900">Recently Scanned Foods ({cachedHistory.length})</h2>
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Metabolic Glycemic Spike Prediction
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      Simulated blood glucose trajectory based on free sugars vs fiber/protein buffers
-                    </p>
-                  </div>
+                  <span className="text-[11px] text-slate-400">Cached for instant offline lookup</span>
                 </div>
 
-                <span className={`text-xs font-black uppercase px-2.5 py-1 rounded-full border ${getSpikeColorBadge(currentProduct.metabolicPrediction.spikeLevel)}`}>
-                  {currentProduct.metabolicPrediction.spikeLevel} Spike Risk
-                </span>
-              </div>
-
-              {/* Spike Progress Gauge */}
-              <div className="space-y-1.5 pt-1">
-                <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden flex">
-                  <div
-                    className={`h-full transition-all duration-500 ${
-                      currentProduct.metabolicPrediction.spikeLevel === 'severe' ? 'w-full bg-rose-600' :
-                      currentProduct.metabolicPrediction.spikeLevel === 'high' ? 'w-3/4 bg-orange-500' :
-                      currentProduct.metabolicPrediction.spikeLevel === 'moderate' ? 'w-1/2 bg-amber-500' : 'w-1/4 bg-emerald-500'
-                    }`}
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-400 font-medium">
-                  <span>Slow absorption (Fiber buffered)</span>
-                  <span>Moderate rise</span>
-                  <span>Acute Insulin Surge</span>
-                </div>
-              </div>
-
-              {/* Spike Metrics Summary Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <div className="p-3 bg-white rounded-xl border border-slate-200">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Estimated Glycemic Index</span>
-                  <p className="text-sm font-extrabold text-slate-900">
-                    {currentProduct.metabolicPrediction.glycemicIndexEstimate}
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Speed of carbohydrate hydrolysis into bloodstream glucose.
-                  </p>
-                </div>
-                <div className="p-3 bg-white rounded-xl border border-slate-200">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Energy Crash Risk</span>
-                  <p className="text-sm font-extrabold text-slate-900">
-                    {currentProduct.metabolicPrediction.estimatedCrashRisk}
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    {currentProduct.metabolicPrediction.summary}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* ── 3. VISUAL SUGAR CUBES CALCULATOR ── */}
-            <div className="bg-amber-50/60 rounded-2xl p-4 sm:p-5 border border-amber-200/80 space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center text-amber-800 font-bold text-sm">
-                    🧊
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Visual Sugar Cubes Breakdown
-                    </h3>
-                    <p className="text-[11px] text-slate-600">
-                      1 sugar cube ≈ 4 grams of pure sucrose. WHO daily target max: 25g (6 cubes).
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-right">
-                  <span className="text-lg font-black text-amber-900">
-                    {currentProduct.sugarCubesCount} Cubes
-                  </span>
-                  <span className="text-xs text-amber-700 block font-medium">
-                    ({(currentProduct.nutriments.sugarsPer100g || 0)}g sugar per 100g)
-                  </span>
-                </div>
-              </div>
-
-              {/* Render Cube Grid Icons */}
-              <div className="p-3 bg-white rounded-xl border border-amber-200 flex flex-wrap gap-1.5 items-center">
-                {Array.from({ length: Math.min(24, Math.max(1, currentProduct.sugarCubesCount)) }).map((_, idx) => (
-                  <div
-                    key={idx}
-                    className="w-7 h-7 rounded-md bg-amber-100 border border-amber-300 flex items-center justify-center text-xs font-black text-amber-800 shadow-2xs"
-                    title={`Sugar cube #${idx + 1}`}
-                  >
-                    🧊
-                  </div>
-                ))}
-                {currentProduct.sugarCubesCount > 24 && (
-                  <span className="text-xs font-bold text-amber-700 pl-2">
-                    +{currentProduct.sugarCubesCount - 24} more cubes!
-                  </span>
-                )}
-              </div>
-
-              {/* WHO Context Notice */}
-              <div className="flex items-center justify-between text-xs text-amber-800 pt-1">
-                <span>
-                  <strong>Impact: </strong>
-                  {currentProduct.sugarCubesCount >= 6 ? (
-                    <span className="text-rose-700 font-bold">
-                      Exceeds the WHO adult 24-hour sugar ceiling in a single item!
-                    </span>
-                  ) : (
-                    <span className="text-emerald-700 font-semibold">
-                      Under the WHO 25g daily threshold.
-                    </span>
-                  )}
-                </span>
-                <span className="font-mono font-bold">
-                  {Math.round(((currentProduct.nutriments.sugarsPer100g || 0) / 25) * 100)}% of daily allowance
-                </span>
-              </div>
-            </div>
-
-            {/* ── 4. NUTRITION MACRO METRIC CARDS ── */}
-            <div>
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5">
-                Nutrient Density (per 100g standard portion)
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
-                    <Flame className="w-3 h-3 text-orange-500" />
-                    Calories
-                  </span>
-                  <p className="text-base font-black text-slate-900 mt-0.5">
-                    {currentProduct.nutriments.caloriesPer100g ?? '--'} kcal
-                  </p>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">
-                    Refined Sugars
-                  </span>
-                  <p className={`text-base font-black mt-0.5 ${
-                    (currentProduct.nutriments.sugarsPer100g || 0) > 15 ? 'text-rose-600' : 'text-slate-900'
-                  }`}>
-                    {currentProduct.nutriments.sugarsPer100g ?? 0}g
-                  </p>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">
-                    Saturated Fat
-                  </span>
-                  <p className="text-base font-black text-slate-900 mt-0.5">
-                    {currentProduct.nutriments.saturatedFatPer100g ?? 0}g
-                  </p>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">
-                    Sodium / Salt
-                  </span>
-                  <p className="text-base font-black text-slate-900 mt-0.5">
-                    {currentProduct.nutriments.saltPer100g ?? 0}g
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* ── 5. CHEMICAL ADDITIVES & E-NUMBERS DECODER ── */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                    <ShieldAlert className="w-4 h-4 text-slate-500" />
-                    Chemical Additives & E-Numbers Decoder
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Industrial stabilizers, artificial dyes, preservatives, and flavor modifiers
-                  </p>
-                </div>
-                <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                  {currentProduct.additives.length} Detected
-                </span>
-              </div>
-
-              {currentProduct.additives.length === 0 ? (
-                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2.5">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                  <div>
-                    <p className="font-bold">Clean Formulation — Zero Synthetic Additives</p>
-                    <p className="text-[11px] text-emerald-700">
-                      No synthetic preservatives, industrial colorants, or high-concern stabilizers detected.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {currentProduct.additives.map((additive, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3.5 rounded-xl border bg-slate-50/70 border-slate-200 space-y-1.5"
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {cachedHistory.slice(0, 6).map(prod => (
+                    <button
+                      key={prod.barcode}
+                      onClick={() => handleSelectProduct(prod)}
+                      className="p-3 rounded-xl border border-slate-200 hover:border-emerald-300 bg-slate-50/50 hover:bg-emerald-50/50 text-left transition flex items-center gap-3 group"
                     >
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-black px-2 py-0.5 rounded bg-slate-200 text-slate-800">
-                            {additive.code}
-                          </span>
-                          <span className="text-xs font-bold text-slate-900">
-                            {additive.name}
-                          </span>
-                        </div>
-                        <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
-                          additive.riskLevel === 'high_concern'
-                            ? 'bg-rose-100 border-rose-300 text-rose-800'
-                            : additive.riskLevel === 'caution'
-                            ? 'bg-amber-100 border-amber-300 text-amber-800'
-                            : 'bg-emerald-100 border-emerald-300 text-emerald-800'
-                        }`}>
-                          {additive.riskLevel === 'high_concern' ? 'High Concern' : additive.riskLevel === 'caution' ? 'Moderate Caution' : 'Approved Safe'}
-                        </span>
+                      <div className="w-12 h-12 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden p-1">
+                        {prod.imageUrl ? (
+                          <Image
+                            src={prod.imageUrl}
+                            alt={prod.name}
+                            width={48}
+                            height={48}
+                            className="w-full h-full object-contain"
+                            unoptimized
+                          />
+                        ) : (
+                          <span className="text-lg">🥫</span>
+                        )}
                       </div>
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        <strong className="text-slate-700">Purpose: </strong> {additive.purpose}. {additive.description}
-                      </p>
-                    </div>
+                      <div className="truncate">
+                        <p className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-700">
+                          {prod.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {prod.sugarCubesCount} sugar cubes • {prod.nutriments.caloriesPer100g || 0} kcal
+                        </p>
+                      </div>
+                    </button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── LIVE CATEGORY EXPLORER SHELF ── */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-slate-500" />
+                  Explore Global Food Categories
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Tap any category to query live international products from the Open Food Facts registry
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {POPULAR_CATEGORIES.map(cat => {
+                  const isSelected = selectedCategory === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      onClick={() => handleSelectCategory(cat.id, cat.query)}
+                      className={`p-3 rounded-xl border text-left transition ${
+                        isSelected
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-900'
+                      }`}
+                    >
+                      <span className="text-2xl block mb-1">{cat.icon}</span>
+                      <p className="text-xs font-bold leading-tight">{cat.name}</p>
+                      <p className={`text-[10px] mt-0.5 leading-tight ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
+                        {cat.desc}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Render Selected Category Live Products */}
+              {isCategoryLoading && (
+                <div className="p-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+                  <span>Loading live items from international database...</span>
+                </div>
+              )}
+
+              {!isCategoryLoading && categoryProducts.length > 0 && (
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                  <span className="text-xs font-bold text-slate-600 block">
+                    Category Matches ({categoryProducts.length}):
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {categoryProducts.map(p => (
+                      <button
+                        key={p.barcode}
+                        onClick={() => handleSelectProduct(p)}
+                        className="p-2.5 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200 text-left transition flex items-center justify-between"
+                      >
+                        <div className="truncate pr-2">
+                          <p className="text-xs font-bold text-slate-900 truncate">{p.name}</p>
+                          <p className="text-[11px] text-slate-500 truncate">{p.brand} • {p.nutriments.sugarsPer100g ?? 0}g sugar</p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* ── 6. HEALTH IMPACTS & TRADE-OFFS ── */}
-            <div className="space-y-2.5">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Health Trade-Offs & Plain-Language Observations
-              </h3>
-              <div className="space-y-2">
-                {currentProduct.healthImpacts.map((impact, idx) => (
-                  <div
-                    key={idx}
-                    className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
-                      impact.type === 'concern'
-                        ? 'bg-rose-50/60 border-rose-200 text-rose-900'
-                        : impact.type === 'positive'
-                        ? 'bg-emerald-50/60 border-emerald-200 text-emerald-900'
-                        : 'bg-slate-50 border-slate-200 text-slate-800'
-                    }`}
-                  >
-                    {impact.type === 'concern' ? (
-                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    ) : (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+          </div>
+        )}
+
+        {/* ── VIEW B: PRODUCT SELECTED -> FULL PRODUCT INTELLIGENCE DOSSIER ── */}
+        {currentProduct && activeVerdict && (
+          <section className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs space-y-6">
+            
+            {/* Top Navigation Back Button */}
+            <div className="px-5 pt-4 pb-0 flex items-center justify-between border-b border-slate-100">
+              <button
+                onClick={() => setCurrentProduct(null)}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-800 pb-3"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Scanner & Search</span>
+              </button>
+              <span className="text-[11px] text-slate-400 pb-3">Barcode: {currentProduct.barcode}</span>
+            </div>
+
+            {/* Product Header & Identification */}
+            <div className="p-5 sm:p-6 bg-gradient-to-b from-slate-50 to-white flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
+              <div className="flex items-start gap-4">
+                <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-2 shadow-2xs">
+                  {currentProduct.imageUrl ? (
+                    <Image
+                      src={currentProduct.imageUrl}
+                      alt={currentProduct.name}
+                      width={96}
+                      height={96}
+                      className="w-full h-full object-contain"
+                      unoptimized
+                    />
+                  ) : (
+                    <div className="text-3xl text-slate-300">🥫</div>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 uppercase tracking-wider">
+                      {currentProduct.brand || 'Packaged Grocery'}
+                    </span>
+                    {currentProduct.category && (
+                      <span className="text-[11px] text-slate-500">
+                        • {currentProduct.category}
+                      </span>
                     )}
-                    <div>
-                      <p className="font-bold">{impact.title}</p>
-                      <p className="text-[11px] leading-relaxed opacity-90">{impact.description}</p>
-                    </div>
                   </div>
-                ))}
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-tight">
+                    {currentProduct.name}
+                  </h1>
+                  <p className="text-xs text-slate-500">
+                    Standard Measure: {currentProduct.servingSize || '100g reference measure'}
+                  </p>
+                </div>
+              </div>
+
+              {/* NutriScore & NOVA Badges + NutriDuel + Journal Actions */}
+              <div className="flex flex-row md:flex-col items-center md:items-end justify-between w-full md:w-auto gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
+                <div className="flex items-center gap-2">
+                  {currentProduct.nutriscoreGrade && (
+                    <div className="flex flex-col items-center">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase">Nutri-Score</span>
+                      <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm uppercase text-white shadow-xs ${
+                        currentProduct.nutriscoreGrade === 'a' ? 'bg-emerald-600' :
+                        currentProduct.nutriscoreGrade === 'b' ? 'bg-lime-600' :
+                        currentProduct.nutriscoreGrade === 'c' ? 'bg-yellow-500' :
+                        currentProduct.nutriscoreGrade === 'd' ? 'bg-orange-500' : 'bg-red-600'
+                      }`}>
+                        {currentProduct.nutriscoreGrade}
+                      </span>
+                    </div>
+                  )}
+
+                  {currentProduct.novaGroup && (
+                    <div className="flex flex-col items-center">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase">NOVA</span>
+                      <span className={`px-2.5 h-8 rounded-lg flex items-center justify-center font-bold text-xs uppercase border ${
+                        currentProduct.novaGroup === 4
+                          ? 'bg-rose-50 border-rose-200 text-rose-700'
+                          : currentProduct.novaGroup === 3
+                          ? 'bg-amber-50 border-amber-200 text-amber-700'
+                          : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      }`}>
+                        {currentProduct.novaGroup === 4 ? 'Group 4: Ultra-Processed' : `Group ${currentProduct.novaGroup}`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                  <button
+                    onClick={() => setIsDuelOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition"
+                  >
+                    <Swords className="w-3.5 h-3.5" />
+                    <span>NutriDuel</span>
+                  </button>
+
+                  {/* Meal Selector dropdown */}
+                  <select
+                    value={selectedMealType}
+                    onChange={e => setSelectedMealType(e.target.value as MealType)}
+                    className="text-xs bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5 font-semibold text-slate-700 focus:outline-none"
+                    aria-label="Meal type selector"
+                  >
+                    <option value="breakfast">🌅 Breakfast</option>
+                    <option value="lunch">☀️ Lunch</option>
+                    <option value="dinner">🌙 Dinner</option>
+                    <option value="snack">🍎 Snack</option>
+                  </select>
+
+                  <button
+                    onClick={handleAddToJournal}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Log</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* ── 7. HEALTHIER ALTERNATIVES SHELF ── */}
-            {currentProduct.alternatives.length > 0 && (
-              <div className="space-y-3 pb-2">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-emerald-600" />
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Smart Metabolic Alternatives
-                  </h3>
-                </div>
+            <div className="px-5 sm:px-6 space-y-6">
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {currentProduct.alternatives.map((alt, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-1.5"
-                    >
-                      <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                        {alt.category}
-                      </span>
-                      <p className="text-xs font-bold text-slate-900">
-                        {alt.name}
-                      </p>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        {alt.whyBetter}
-                      </p>
-                      <div className="pt-1 flex items-center justify-between text-[11px] font-semibold text-emerald-800">
-                        <span>Sugar Delta:</span>
-                        <span>{alt.sugarComparison}</span>
+              {/* ── DIETARY & ALLERGEN WARNING BANNER ── */}
+              {activeDietaryPrefs.length > 0 && (
+                <div className="space-y-2">
+                  {dietaryWarnings.length > 0 ? (
+                    <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 space-y-2 text-rose-950">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                        <h4 className="text-sm font-black">
+                          Dietary Warnings Detected ({dietaryWarnings.length})
+                        </h4>
+                      </div>
+                      <div className="space-y-1.5 pl-7">
+                        {dietaryWarnings.map((warn, i) => (
+                          <div key={i} className="text-xs">
+                            <strong className="text-rose-900 font-bold">{warn.title}: </strong>
+                            <span className="text-rose-800">{warn.reason}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  ) : (
+                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span className="font-bold">
+                          100% Compliant with your active dietary profile ({activeDietaryPrefs.join(', ')})
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setIsDietaryModalOpen(true)}
+                        className="text-xs text-emerald-700 font-semibold underline hover:text-emerald-900"
+                      >
+                        Edit filters
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── 1. ACTIVE GOAL VERDICT BANNER ── */}
+              <div className={`p-4 sm:p-5 rounded-2xl border ${getVerdictStyle(activeVerdict.status).bg} space-y-2`}>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    {getVerdictStyle(activeVerdict.status).icon}
+                    <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-full ${getVerdictStyle(activeVerdict.status).badge} uppercase tracking-wider`}>
+                      {getVerdictStyle(activeVerdict.status).label}
+                    </span>
+                  </div>
+                  <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                    Goal: <strong className="text-slate-800">{currentGoalMeta.name}</strong>
+                  </span>
+                </div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                  {activeVerdict.headline}
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                  {activeVerdict.coachingAdvice}
+                </p>
+              </div>
+
+              {/* ── 2. METABOLIC GLYCEMIC SPIKE PREDICTOR ── */}
+              <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-700">
+                      <Activity className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Metabolic Glycemic Spike Prediction
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        Simulated glucose trajectory based on free sugars vs fiber/protein buffers
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className={`text-xs font-black uppercase px-2.5 py-1 rounded-full border ${getSpikeColorBadge(currentProduct.metabolicPrediction.spikeLevel)}`}>
+                    {currentProduct.metabolicPrediction.spikeLevel} Spike Risk
+                  </span>
+                </div>
+
+                {/* Spike Progress Gauge */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden flex">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        currentProduct.metabolicPrediction.spikeLevel === 'severe' ? 'w-full bg-rose-600' :
+                        currentProduct.metabolicPrediction.spikeLevel === 'high' ? 'w-3/4 bg-orange-500' :
+                        currentProduct.metabolicPrediction.spikeLevel === 'moderate' ? 'w-1/2 bg-amber-500' : 'w-1/4 bg-emerald-500'
+                      }`}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-400 font-medium">
+                    <span>Slow absorption</span>
+                    <span>Moderate rise</span>
+                    <span>Acute Insulin Surge</span>
+                  </div>
+                </div>
+
+                {/* Spike Metrics Summary Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <div className="p-3 bg-white rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Estimated Glycemic Index</span>
+                    <p className="text-sm font-extrabold text-slate-900">
+                      {currentProduct.metabolicPrediction.glycemicIndexEstimate}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Energy Crash Risk</span>
+                    <p className="text-sm font-extrabold text-slate-900">
+                      {currentProduct.metabolicPrediction.estimatedCrashRisk}
+                    </p>
+                  </div>
                 </div>
               </div>
-            )}
 
-            {/* Product Ingredients Full Text */}
-            {currentProduct.ingredientsText && (
-              <div className="pt-2 border-t border-slate-100">
-                <details className="group">
-                  <summary className="text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer flex items-center gap-1.5 select-none">
-                    <BookOpen className="w-3.5 h-3.5" />
-                    <span>View Exact Label Ingredient List</span>
-                    <ChevronRight className="w-3.5 h-3.5 group-open:rotate-90 transition-transform" />
-                  </summary>
-                  <p className="mt-2 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed font-mono">
-                    {currentProduct.ingredientsText}
-                  </p>
-                </details>
+              {/* ── 3. VISUAL SUGAR CUBES CALCULATOR ── */}
+              <div className="bg-amber-50/60 rounded-2xl p-4 sm:p-5 border border-amber-200/80 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center text-amber-800 font-bold text-sm">
+                      🧊
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Visual Sugar Cubes Breakdown
+                      </h3>
+                      <p className="text-[11px] text-slate-600">
+                        1 sugar cube ≈ 4 grams of pure sucrose. WHO daily target: 25g max (6 cubes).
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-lg font-black text-amber-900">
+                      {currentProduct.sugarCubesCount} Cubes
+                    </span>
+                    <span className="text-xs text-amber-700 block font-medium">
+                      ({(currentProduct.nutriments.sugarsPer100g || 0)}g sugar per 100g)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Render Cube Grid */}
+                <div className="p-3 bg-white rounded-xl border border-amber-200 flex flex-wrap gap-1.5 items-center">
+                  {Array.from({ length: Math.min(24, Math.max(1, currentProduct.sugarCubesCount)) }).map((_, idx) => (
+                    <div
+                      key={idx}
+                      className="w-7 h-7 rounded-md bg-amber-100 border border-amber-300 flex items-center justify-center text-xs font-black text-amber-800 shadow-2xs"
+                    >
+                      🧊
+                    </div>
+                  ))}
+                  {currentProduct.sugarCubesCount > 24 && (
+                    <span className="text-xs font-bold text-amber-700 pl-2">
+                      +{currentProduct.sugarCubesCount - 24} more cubes!
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-amber-800 pt-1">
+                  <span>
+                    <strong>WHO Context: </strong>
+                    {currentProduct.sugarCubesCount >= 6 ? (
+                      <span className="text-rose-700 font-bold">
+                        Exceeds the WHO adult 24-hour sugar ceiling in a single item!
+                      </span>
+                    ) : (
+                      <span className="text-emerald-700 font-semibold">
+                        Under the WHO 25g daily threshold.
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono font-bold">
+                    {Math.round(((currentProduct.nutriments.sugarsPer100g || 0) / 25) * 100)}% of daily allowance
+                  </span>
+                </div>
               </div>
-            )}
 
-          </div>
+              {/* ── 4. NUTRITION MACRO METRIC CARDS ── */}
+              <div>
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5">
+                  Nutrient Density (per 100g standard portion)
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                      <Flame className="w-3 h-3 text-orange-500" />
+                      Calories
+                    </span>
+                    <p className="text-base font-black text-slate-900 mt-0.5">
+                      {currentProduct.nutriments.caloriesPer100g ?? '--'} kcal
+                    </p>
+                  </div>
 
-          {/* Dossier Footer Action Bar */}
-          <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <span className="text-xs text-slate-500 flex items-center gap-1">
-              Data verified via Open Food Facts & Independent Biochemistry Analysis
-            </span>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <button
-                onClick={() => setIsDuelOpen(true)}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs border border-slate-300 transition"
-              >
-                <Swords className="w-4 h-4 text-indigo-600" />
-                <span>NutriDuel</span>
-              </button>
-              <button
-                onClick={handleAddToJournal}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-sm"
-              >
-                <Plus className="w-4 h-4 text-emerald-400" />
-                <span>Add to Today&apos;s Metabolic Log</span>
-              </button>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">
+                      Refined Sugars
+                    </span>
+                    <p className={`text-base font-black mt-0.5 ${
+                      (currentProduct.nutriments.sugarsPer100g || 0) > 15 ? 'text-rose-600' : 'text-slate-900'
+                    }`}>
+                      {currentProduct.nutriments.sugarsPer100g ?? 0}g
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">
+                      Saturated Fat
+                    </span>
+                    <p className="text-base font-black text-slate-900 mt-0.5">
+                      {currentProduct.nutriments.saturatedFatPer100g ?? 0}g
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">
+                      Sodium / Salt
+                    </span>
+                    <p className="text-base font-black text-slate-900 mt-0.5">
+                      {currentProduct.nutriments.saltPer100g ?? 0}g
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 5. CHEMICAL ADDITIVES DECODER ── */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 text-slate-500" />
+                      Chemical Additives & E-Numbers Decoder
+                    </h3>
+                  </div>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                    {currentProduct.additives.length} Detected
+                  </span>
+                </div>
+
+                {currentProduct.additives.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2.5">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <div>
+                      <p className="font-bold">Clean Formulation — Zero Synthetic Additives</p>
+                      <p className="text-[11px] text-emerald-700">
+                        No synthetic preservatives, industrial colorants, or high-concern stabilizers detected.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {currentProduct.additives.map((additive, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3.5 rounded-xl border bg-slate-50/70 border-slate-200 space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-black px-2 py-0.5 rounded bg-slate-200 text-slate-800">
+                              {additive.code}
+                            </span>
+                            <span className="text-xs font-bold text-slate-900">
+                              {additive.name}
+                            </span>
+                          </div>
+                          <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                            additive.riskLevel === 'high_concern'
+                              ? 'bg-rose-100 border-rose-300 text-rose-800'
+                              : additive.riskLevel === 'caution'
+                              ? 'bg-amber-100 border-amber-300 text-amber-800'
+                              : 'bg-emerald-100 border-emerald-300 text-emerald-800'
+                          }`}>
+                            {additive.riskLevel === 'high_concern' ? 'High Concern' : additive.riskLevel === 'caution' ? 'Moderate Caution' : 'Approved Safe'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 leading-relaxed">
+                          <strong className="text-slate-700">Purpose: </strong> {additive.purpose}. {additive.description}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ── 6. SMART ALTERNATIVES SHELF ── */}
+              {currentProduct.alternatives.length > 0 && (
+                <div className="space-y-3 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-600" />
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Smart Metabolic Alternatives
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {currentProduct.alternatives.map((alt, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-1.5"
+                      >
+                        <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                          {alt.category}
+                        </span>
+                        <p className="text-xs font-bold text-slate-900">{alt.name}</p>
+                        <p className="text-[11px] text-slate-600 leading-relaxed">{alt.whyBetter}</p>
+                        <div className="pt-1 flex items-center justify-between text-[11px] font-semibold text-emerald-800">
+                          <span>Sugar Delta:</span>
+                          <span>{alt.sugarComparison}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Exact Ingredient Label Text */}
+              {currentProduct.ingredientsText && (
+                <div className="pt-2 border-t border-slate-100">
+                  <details className="group">
+                    <summary className="text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer flex items-center gap-1.5 select-none">
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span>View Packaging Ingredient List</span>
+                      <ChevronRight className="w-3.5 h-3.5 group-open:rotate-90 transition-transform" />
+                    </summary>
+                    <p className="mt-2 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed font-mono">
+                      {currentProduct.ingredientsText}
+                    </p>
+                  </details>
+                </div>
+              )}
+
             </div>
-          </div>
-        </section>
+
+            {/* Dossier Footer Action Bar */}
+            <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-500 flex items-center gap-1">
+                Data verified via Open Food Facts & International WHO Guidelines
+              </span>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => setIsDuelOpen(true)}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs border border-slate-300 transition"
+                >
+                  <Swords className="w-4 h-4 text-indigo-600" />
+                  <span>NutriDuel</span>
+                </button>
+                <button
+                  onClick={handleAddToJournal}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-sm"
+                >
+                  <Plus className="w-4 h-4 text-emerald-400" />
+                  <span>Log to {selectedMealType.toUpperCase()}</span>
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
       </main>
 
-      {/* ── NUTRIDUEL: SIDE-BY-SIDE PRODUCT COMPARISON MODAL (FEATURE #2) ── */}
-      {isDuelOpen && (
+      {/* ── NUTRIDUEL: SIDE-BY-SIDE COMPARISON MODAL ── */}
+      {isDuelOpen && currentProduct && duelComparison && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            {/* Modal Header */}
             <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold text-base">
@@ -1359,7 +1513,7 @@ export default function NutriScanApp() {
                     NutriDuel: Head-to-Head Comparison
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Metabolic showdown tailored to your <strong className="text-indigo-600">{currentGoalMeta.name}</strong> goal
+                    Goal analysis for <strong className="text-indigo-600">{currentGoalMeta.name}</strong>
                   </p>
                 </div>
               </div>
@@ -1371,10 +1525,7 @@ export default function NutriScanApp() {
               </button>
             </div>
 
-            {/* Modal Body */}
             <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
-              
-              {/* Winner Banner */}
               <div className={`p-4 rounded-2xl border text-center space-y-1 ${
                 duelComparison.winner === 'productA'
                   ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
@@ -1390,9 +1541,7 @@ export default function NutriScanApp() {
                 </p>
               </div>
 
-              {/* Side-by-Side Product Cards */}
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                {/* Product A */}
                 <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-2">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
                     Product A (Active)
@@ -1403,13 +1552,10 @@ export default function NutriScanApp() {
                   <p className="text-[11px] text-slate-500 truncate">{currentProduct.brand}</p>
                 </div>
 
-                {/* Product B with Quick Switcher */}
                 <div className="p-3.5 rounded-2xl border border-indigo-200 bg-indigo-50/40 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">
-                      Product B (Competitor)
-                    </span>
-                  </div>
+                  <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">
+                    Product B (Competitor)
+                  </span>
                   <p className="text-xs sm:text-sm font-extrabold text-slate-900 line-clamp-2">
                     {duelProductB.name}
                   </p>
@@ -1431,9 +1577,7 @@ export default function NutriScanApp() {
                 </div>
               </div>
 
-              {/* Head-to-Head Comparison Matrix */}
               <div className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 text-xs">
-                {/* Free Sugar */}
                 <div className="p-3 grid grid-cols-3 items-center bg-white">
                   <div className="text-left font-bold text-slate-900">
                     {(currentProduct.nutriments.sugarsPer100g || 0)}g
@@ -1446,7 +1590,6 @@ export default function NutriScanApp() {
                   </div>
                 </div>
 
-                {/* Sugar Cubes */}
                 <div className="p-3 grid grid-cols-3 items-center bg-slate-50/50">
                   <div className="text-left font-bold text-amber-700">
                     {currentProduct.sugarCubesCount} cubes
@@ -1459,7 +1602,6 @@ export default function NutriScanApp() {
                   </div>
                 </div>
 
-                {/* Glycemic Spike */}
                 <div className="p-3 grid grid-cols-3 items-center bg-white">
                   <div className="text-left">
                     <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border ${getSpikeColorBadge(currentProduct.metabolicPrediction.spikeLevel)}`}>
@@ -1476,7 +1618,6 @@ export default function NutriScanApp() {
                   </div>
                 </div>
 
-                {/* Calories */}
                 <div className="p-3 grid grid-cols-3 items-center bg-slate-50/50">
                   <div className="text-left font-bold text-slate-800">
                     {currentProduct.nutriments.caloriesPer100g || 0} kcal
@@ -1489,40 +1630,23 @@ export default function NutriScanApp() {
                   </div>
                 </div>
 
-                {/* Synthetic Additives */}
                 <div className="p-3 grid grid-cols-3 items-center bg-white">
                   <div className="text-left font-bold text-slate-800">
                     {currentProduct.additives.length} additives
                   </div>
                   <div className="text-center font-bold text-slate-400 uppercase text-[10px]">
-                    E-Numbers / Additives
+                    E-Numbers
                   </div>
                   <div className="text-right font-bold text-slate-800">
                     {duelProductB.additives.length} additives
                   </div>
                 </div>
-
-                {/* NOVA Group */}
-                <div className="p-3 grid grid-cols-3 items-center bg-slate-50/50">
-                  <div className="text-left font-bold">
-                    Group {currentProduct.novaGroup || '4'}
-                  </div>
-                  <div className="text-center font-bold text-slate-400 uppercase text-[10px]">
-                    NOVA Ultra-Processed
-                  </div>
-                  <div className="text-right font-bold">
-                    Group {duelProductB.novaGroup || '4'}
-                  </div>
-                </div>
               </div>
-
             </div>
 
-            {/* Modal Footer */}
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
               <button
                 onClick={() => {
-                  // Swap Product B to be the active Product
                   setCurrentProduct(duelProductB);
                   setIsDuelOpen(false);
                   triggerToast(`Switched active product to ${duelProductB.name}`);
@@ -1531,7 +1655,6 @@ export default function NutriScanApp() {
               >
                 Switch Active to Competitor
               </button>
-
               <button
                 onClick={() => setIsDuelOpen(false)}
                 className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs"
@@ -1543,11 +1666,10 @@ export default function NutriScanApp() {
         </div>
       )}
 
-      {/* ── SNAP-A-LABEL AI / SMART OCR READER MODAL (FEATURE #4) ── */}
+      {/* ── SNAP-A-LABEL REAL IN-BROWSER OCR MODAL ── */}
       {isLabelReaderOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            {/* Modal Header */}
             <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-base">
@@ -1555,10 +1677,10 @@ export default function NutriScanApp() {
                 </div>
                 <div>
                   <h2 className="text-base font-extrabold text-slate-900">
-                    Snap-a-Label Smart OCR Reader
+                    Snap-a-Label Real In-Browser OCR
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Extract sugars, calories, and E-numbers from nutrition labels
+                    Reads actual packaging labels using WebAssembly text recognition
                   </p>
                 </div>
               </div>
@@ -1570,57 +1692,49 @@ export default function NutriScanApp() {
               </button>
             </div>
 
-            {/* Modal Body */}
             <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
-              {/* Photo Input (triggers mobile camera directly via capture="environment") */}
-              <div className="p-4 rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/40 text-center space-y-2">
+              {/* Photo Input with real OCR trigger */}
+              <div className="p-5 rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/40 text-center space-y-2">
                 <label className="cursor-pointer block">
                   <input
                     type="file"
                     accept="image/*"
                     capture="environment"
                     className="hidden"
+                    disabled={isOcrProcessing}
                     onChange={e => {
                       const file = e.target.files?.[0];
-                      if (file) {
-                        triggerToast(`Photo captured: ${file.name}. Reading nutrition text...`);
-                        // Set realistic extracted preset from the label
-                        insertSampleLabel('snack');
-                      }
+                      if (file) handlePhotoUploadForOCR(file);
                     }}
                   />
-                  <UploadCloud className="w-8 h-8 text-emerald-600 mx-auto" />
+                  <UploadCloud className="w-9 h-9 text-emerald-600 mx-auto" />
                   <p className="text-xs font-bold text-slate-900 mt-1">
-                    Tap to Snap Nutrition Table Photo
+                    {isOcrProcessing ? 'Processing Label...' : 'Tap to Photograph Food Label'}
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    Take photo of nutrition facts or ingredient label
+                    Takes photo of nutrition facts or ingredients table
                   </p>
                 </label>
               </div>
 
-              {/* Quick Preset Buttons */}
-              <div className="space-y-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Or Test with Sample OCR Label:
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => insertSampleLabel('soda')}
-                    className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold"
-                  >
-                    🥤 Soda Can Label
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => insertSampleLabel('snack')}
-                    className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold"
-                  >
-                    🍪 Snack Bar Label
-                  </button>
+              {/* Real OCR Progress State */}
+              {isOcrProcessing && (
+                <div className="p-3.5 rounded-xl bg-slate-900 text-white text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                      {ocrStatusText || 'Recognizing characters...'}
+                    </span>
+                    <span className="font-mono text-emerald-400 font-bold">{ocrProgress}%</span>
+                  </div>
+                  <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-emerald-400 h-full transition-all duration-200"
+                      style={{ width: `${Math.max(10, ocrProgress)}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Product Name */}
               <div className="space-y-1">
@@ -1631,27 +1745,26 @@ export default function NutriScanApp() {
                   type="text"
                   value={labelInputName}
                   onChange={e => setLabelInputName(e.target.value)}
-                  placeholder="e.g. Sparkling Citrus Beverage or Granola"
+                  placeholder="e.g. Greek Artisan Yogurt or Sourdough Loaf"
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
-              {/* Nutrition & Ingredient Text */}
+              {/* Extracted Label Text Area */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-700">
-                  Nutrition Table & Ingredient Text *
+                  Extracted Nutrition & Ingredients Text
                 </label>
                 <textarea
                   rows={4}
                   value={labelInputText}
                   onChange={e => setLabelInputText(e.target.value)}
-                  placeholder="Paste or type text: e.g. Calories 140, Sugars 10.6g, Fat 0g, Ingredients: water, sugar, caramel color E150d, phosphoric acid E338..."
+                  placeholder="Extracted label characters will appear here automatically from your photo, or you can paste text..."
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
                 />
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -1662,21 +1775,21 @@ export default function NutriScanApp() {
               </button>
               <button
                 type="button"
+                disabled={isOcrProcessing || !labelInputText.trim()}
                 onClick={handleAnalyzeLabel}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition"
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition disabled:opacity-50"
               >
-                Analyze & Decode
+                Analyze & Build Dossier
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── GLOBAL DIETARY & ALLERGEN PREFERENCES MODAL (FEATURE #3) ── */}
+      {/* ── GLOBAL DIETARY & ALLERGEN PREFERENCES MODAL ── */}
       {isDietaryModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            {/* Modal Header */}
             <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-base">
@@ -1699,7 +1812,6 @@ export default function NutriScanApp() {
               </button>
             </div>
 
-            {/* Options List */}
             <div className="p-4 sm:p-5 overflow-y-auto space-y-2.5">
               {DIETARY_OPTIONS.map(opt => {
                 const isActive = activeDietaryPrefs.includes(opt.id);
@@ -1734,7 +1846,6 @@ export default function NutriScanApp() {
               })}
             </div>
 
-            {/* Modal Footer */}
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
               <button
                 type="button"
@@ -1759,11 +1870,10 @@ export default function NutriScanApp() {
         </div>
       )}
 
-      {/* ── DAILY METABOLIC JOURNAL MODAL / SLIDEOVER ── */}
+      {/* ── STRUCTURED MEAL DAILY JOURNAL MODAL ── */}
       {isJournalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            {/* Modal Header */}
+          <div className="bg-white rounded-3xl max-w-xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-base">
@@ -1774,7 +1884,7 @@ export default function NutriScanApp() {
                     Today&apos;s Metabolic Journal
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Real-time glycemic and ultra-processed food tally
+                    Structured meals, macro splits & glycemic totals
                   </p>
                 </div>
               </div>
@@ -1786,8 +1896,7 @@ export default function NutriScanApp() {
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="p-4 sm:p-5 overflow-y-auto space-y-5">
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
               {/* Daily Clean Eating Score Card */}
               <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 text-white space-y-3">
                 <div className="flex items-center justify-between">
@@ -1810,75 +1919,65 @@ export default function NutriScanApp() {
                     style={{ width: `${dailySummary.cleanEatingScore}%` }}
                   />
                 </div>
-                <div className="grid grid-cols-3 gap-2 pt-1 text-center text-xs">
+                <div className="grid grid-cols-4 gap-2 pt-1 text-center text-xs">
                   <div className="p-2 rounded-lg bg-white/5 border border-white/10">
-                    <span className="text-[10px] text-slate-400 block">Total Sugar</span>
-                    <strong className="text-sm font-bold">{dailySummary.totalSugarGrams}g</strong>
+                    <span className="text-[10px] text-slate-400 block">Calories</span>
+                    <strong className="text-xs font-bold">{dailySummary.totalCalories}</strong>
                   </div>
                   <div className="p-2 rounded-lg bg-white/5 border border-white/10">
-                    <span className="text-[10px] text-slate-400 block">NOVA 4 Items</span>
-                    <strong className="text-sm font-bold">{dailySummary.ultraProcessedItemsCount}</strong>
+                    <span className="text-[10px] text-slate-400 block">Sugar</span>
+                    <strong className="text-xs font-bold">{dailySummary.totalSugarGrams}g</strong>
                   </div>
                   <div className="p-2 rounded-lg bg-white/5 border border-white/10">
-                    <span className="text-[10px] text-slate-400 block">Additives</span>
-                    <strong className="text-sm font-bold">{dailySummary.chemicalAdditivesCount}</strong>
+                    <span className="text-[10px] text-slate-400 block">NOVA 4</span>
+                    <strong className="text-xs font-bold">{dailySummary.ultraProcessedItemsCount}</strong>
+                  </div>
+                  <div className="p-2 rounded-lg bg-white/5 border border-white/10">
+                    <span className="text-[10px] text-slate-400 block">Protein</span>
+                    <strong className="text-xs font-bold">{dailySummary.totalProteinGrams}g</strong>
                   </div>
                 </div>
               </div>
 
-              {/* Sugar vs WHO Target */}
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                <div className="flex justify-between text-xs font-bold">
-                  <span>WHO Daily Sugar Ceiling (25g)</span>
-                  <span className={dailySummary.totalSugarGrams > 25 ? 'text-rose-600' : 'text-emerald-600'}>
-                    {dailySummary.sugarDailyLimitPercent}% of Max
-                  </span>
-                </div>
-                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full ${
-                      dailySummary.totalSugarGrams > 25 ? 'bg-rose-600' : 'bg-emerald-500'
+              {/* Meal Filter Tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                {(['all', 'breakfast', 'lunch', 'dinner', 'snack'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveMealTab(tab)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold capitalize transition border ${
+                      activeMealTab === tab
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                     }`}
-                    style={{ width: `${Math.min(100, dailySummary.sugarDailyLimitPercent)}%` }}
-                  />
-                </div>
-                {dailySummary.totalSugarGrams > 25 && (
-                  <p className="text-[11px] text-rose-600 font-medium">
-                    ⚠️ You have exceeded the 25g threshold. Aim for whole foods and water for remainder of the day.
-                  </p>
-                )}
+                  >
+                    {tab === 'all' ? 'All Meals' : tab}
+                  </button>
+                ))}
               </div>
 
               {/* Logged Items List */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  <span>Foods Consumed Today ({dailyLogs.length})</span>
-                  {dailyLogs.length > 0 && (
-                    <button
-                      onClick={handleClearJournal}
-                      className="text-rose-600 hover:text-rose-700 text-xs lowercase font-normal flex items-center gap-1"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      clear day
-                    </button>
-                  )}
-                </div>
-
-                {dailyLogs.length === 0 ? (
+                {filteredDailyLogs.length === 0 ? (
                   <div className="p-6 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-xl">
-                    No food items logged today yet. Scan or search a food item above and click &quot;Log Food&quot;!
+                    No food items logged in this meal category yet.
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                    {dailyLogs.map(item => (
+                    {filteredDailyLogs.map(item => (
                       <div
                         key={item.id}
                         className="p-3 rounded-xl border border-slate-200 bg-white flex items-center justify-between gap-3 shadow-2xs"
                       >
                         <div className="truncate">
-                          <p className="text-xs font-bold text-slate-900 truncate">
-                            {item.product.name}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-slate-100 text-slate-700">
+                              {item.mealType}
+                            </span>
+                            <p className="text-xs font-bold text-slate-900 truncate">
+                              {item.product.name}
+                            </p>
+                          </div>
                           <p className="text-[11px] text-slate-500">
                             {item.servingsCount}x portion • {((item.product.nutriments.sugarsPer100g || 0) * item.servingsCount).toFixed(1)}g sugar • {item.loggedAt}
                           </p>
@@ -1886,7 +1985,7 @@ export default function NutriScanApp() {
                         <button
                           onClick={() => handleRemoveLog(item.id)}
                           className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                          title="Remove from journal"
+                          title="Remove item"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1897,8 +1996,25 @@ export default function NutriScanApp() {
               </div>
             </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end">
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportSummary}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs flex items-center gap-1.5"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Copy Report</span>
+                </button>
+                {dailyLogs.length > 0 && (
+                  <button
+                    onClick={handleClearJournal}
+                    className="text-rose-600 hover:text-rose-700 text-xs flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clear Day</span>
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setIsJournalOpen(false)}
                 className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs"
@@ -1914,7 +2030,6 @@ export default function NutriScanApp() {
       {isCrowdsourceOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            {/* Modal Header */}
             <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-base">
@@ -1925,7 +2040,7 @@ export default function NutriScanApp() {
                     Contribute Product to Global Registry
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Help map international foods, beverages, and packaged goods worldwide
+                    Help map international foods and beverages worldwide
                   </p>
                 </div>
               </div>
@@ -1937,7 +2052,6 @@ export default function NutriScanApp() {
               </button>
             </div>
 
-            {/* Modal Form */}
             <form onSubmit={handleCrowdsourceSubmit} className="p-4 sm:p-5 overflow-y-auto space-y-4">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-700">
@@ -2003,7 +2117,7 @@ export default function NutriScanApp() {
                   rows={3}
                   value={crowdsourceForm.ingredientsText}
                   onChange={e => setCrowdsourceForm({ ...crowdsourceForm, ingredientsText: e.target.value })}
-                  placeholder="Paste or type ingredients: e.g. Carbonated water, sugar, caramel color E150d, phosphoric acid..."
+                  placeholder="Paste or type ingredients..."
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
